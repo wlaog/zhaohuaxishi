@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>朝花夕拾 · 日记档案</title><link rel="stylesheet" href="assets/style.css"></head>
+<body>
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="#"><span class="brand-icon">拾</span><span>朝花夕拾<small>日记档案 / NOTEBOOK</small></span></a>
+  <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索标题、正文与图片文字" aria-label="搜索日记"><kbd>/</kbd></label>
+  <div class="nav-caption"><span id="nav-label">笔记本目录</span><button id="collapse" title="折叠全部目录" aria-label="折叠全部目录">收起</button></div>
+  <nav id="tree" aria-label="笔记本目录"></nav>
+  <footer class="sidebar-footer"><a href="source/index.html" target="_blank">原始资料目录</a><a href="_audit/verification.html" target="_blank">查看校验</a></footer>
+</aside>
+<main>
+  <header class="toolbar"><button id="menu" class="icon-button" aria-label="切换目录">☰</button><div id="breadcrumb">朝花夕拾 <span>/</span> 总览</div><div class="toolbar-actions"><a id="originals-link" class="quiet" target="_blank" hidden>查看原图</a><a id="native-link" class="quiet" target="_blank" hidden>原生 HTML</a><label id="zoom-label" hidden><span class="sr-only">页面缩放</span><select id="zoom"><option value="fit">适合宽度</option><option value="1">100%</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option></select></label></div></header>
+  <section id="home" class="home"></section>
+  <section id="reader" hidden><div class="page-bar"><div><h1 id="page-title"></h1><p id="page-info"></p></div><div class="pagination"><button id="previous" aria-label="上一篇">←</button><span id="page-position"></span><button id="next" aria-label="下一篇">→</button></div></div><iframe id="page-frame" title="日记正文" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe></section>
+  <div id="empty" class="empty" hidden>没有找到这篇日记。<a href="#">返回总览</a></div>
+</main>
+<script src="assets/catalog.js"></script><script src="assets/app.js"></script>
+</body></html>

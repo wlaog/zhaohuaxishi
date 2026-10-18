@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark"><title>朝花夕拾 · 本地日记</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+  <script src="/petals.js" type="module"></script>
+</head>
+<body>
+  <div id="petals-layer" class="petals-layer" aria-hidden="true" hidden></div>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/" aria-label="朝花夕拾 首页"><img class="brand-mark" src="/favicon.svg" alt=""><span>朝花夕拾<span class="brand-caption">留住生活的片刻</span></span></a>
+    <button class="search-trigger" id="focus-search"><span data-icon="search"></span><span>搜索日记</span><kbd>Ctrl K</kbd></button>
+    <button class="primary new-entry" data-action="today"><span data-icon="plus"></span>写今天</button>
+    <button class="quiet independent-entry" data-action="new">新建独立记录</button>
+    <nav aria-label="日记视图" id="navigation">
+      <button data-view="all" class="nav-row active"><span data-icon="home"></span>全部日记<span class="nav-count" id="all-count"></span></button>
+      <button data-view="pinned" class="nav-row"><span data-icon="bookmark"></span>我的收藏</button>
+      <button data-view="images" class="nav-row"><span data-icon="image"></span>图片记忆</button>
+      <button data-view="recent" class="nav-row"><span data-icon="clock"></span>最近编辑</button>
+      <button data-view="trash" class="nav-row"><span data-icon="trash"></span>回收站</button>
+    </nav>
+    <div class="sidebar-label">日记目录 <button id="clear-filter" title="清除筛选" aria-label="清除筛选"><span data-icon="filter"></span></button></div>
+    <div id="directory" class="directory"></div>
+    <div class="sidebar-label">标签</div><div id="tags" class="tags-list"></div>
+    <div class="sidebar-bottom">
+      <div class="profile"><span class="avatar">拾</span><div><strong>朝花夕拾</strong><small><i class="online-dot"></i>仅保存在本机</small></div><button id="theme" aria-label="切换深浅主题" title="切换深浅主题"><span data-icon="sun"></span></button></div>
+    </div>
+  </aside>
+  <div class="mobile-shade" id="shade"></div>
+  <div class="workspace">
+    <header class="topbar"><div class="breadcrumb"><button id="menu" aria-label="展开侧栏"><span data-icon="menu"></span></button><span data-icon="book"></span><span>我的空间</span><span class="slash">/</span><strong id="view-label">全部日记</strong></div><div class="topbar-actions"><button id="petals-toggle" class="petals-toggle" type="button" role="switch" aria-label="花瓣飘落" aria-checked="false" title="开启花瓣飘落"><span aria-hidden="true">落花</span><span class="petals-switch" aria-hidden="true"></span></button><button class="local-badge" id="connection-status" title="检查其他设备的更新"><i class="online-dot"></i><span id="connection-label" role="status">正在连接</span></button></div></header>
+    <div class="columns">
+      <main id="main">
+        <section class="page-heading"><div><p class="eyebrow">YOUR EVERYDAY, KEPT CLOSE.</p><h1 id="heading">生活，值得被记住。</h1><p id="subtitle">写下此刻，也翻翻从前。</p></div><button class="quiet icon-only" id="sort" title="切换时间排序" aria-label="切换时间排序"><span data-icon="sort"></span></button></section>
+        <div class="search-box"><span data-icon="search"></span><input id="search" placeholder="搜索标题、正文、标签…" aria-label="搜索日记"><button id="clear-search" aria-label="清空搜索" hidden>×</button><kbd>Ctrl K</kbd></div>
+        <section class="quick-compose" id="quick-compose"><div class="quick-line"><span class="avatar small">拾</span><button id="quick-write">今天，有什么想记下来的？</button><span class="quick-date" id="today-label"></span></div><div class="quick-footer"><div><button data-create="text"><span data-icon="text"></span>文字</button><button data-create="image"><span data-icon="image"></span>图片</button><button data-create="html"><span data-icon="code"></span>HTML</button></div><button class="primary compact" data-action="daily"><span id="daily-write-label">开始记录</span> <span data-icon="arrow"></span></button></div></section>
+        <div class="feed-heading"><span id="feed-label">所有片刻</span><span id="result-count"></span></div>
+        <div id="feed" aria-live="polite"><div class="empty">正在打开你的本地日记…</div></div>
+        <button id="load-more" class="load-more" hidden>再看一些日记 <span data-icon="down"></span></button>
+        <footer class="page-footer">朝花夕拾 · 每一个平凡的日子，都有自己的光。</footer>
+      </main>
+      <aside class="rightbar">
+        <section class="calendar-widget"><div class="widget-title"><div id="calendar-title" class="calendar-pickers"><select id="calendar-year" aria-label="选择年份"></select><select id="calendar-month" aria-label="选择月份"></select></div><div><button id="prev-month" aria-label="上个月"><span data-icon="left"></span></button><button id="next-month" aria-label="下个月"><span data-icon="right"></span></button></div></div><div class="calendar-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div id="calendar" class="calendar-grid"></div><div class="calendar-legend"><i></i>有记录的日子 <button id="calendar-today">回到今天</button></div></section>
+        <section class="stats-widget"><p class="sidebar-label">生活的足迹</p><div class="stat-grid"><div><strong id="stat-days">—</strong><span>记录天数</span></div><div><strong id="stat-notes">—</strong><span>篇日记</span></div><div><strong id="stat-images">—</strong><span>张图片</span></div></div><div id="activity" class="activity" aria-label="最近十三周记录活动"></div><div class="activity-caption"><span>最近十三周</span><span>少 <i></i><i></i><i></i> 多</span></div></section>
+        <section class="on-this-day" id="on-this-day"></section>
+        <section class="local-note"><span data-icon="shield"></span><div><strong>你的生活，由你保管</strong><p>日记与原图保存在本机文件夹。<br>自动保存，历史版本随时可回看。</p><button id="about">关于朝花夕拾 <span data-icon="arrow"></span></button></div></section>
+        <div class="credits">界面灵感来自 <a href="https://github.com/usememos/memos" target="_blank" rel="noopener">Memos ↗</a></div>
+      </aside>
+    </div>
+  </div>
+  <dialog id="editor-dialog" class="editor-dialog">
+    <div class="editor-header"><div><span class="editor-indicator"></span><span id="editor-label">日记</span><span id="save-status" role="status">已保存到电脑</span></div><button id="close-editor" class="icon-only" title="保存并关闭" aria-label="保存并关闭"><span data-icon="close"></span></button></div>
+    <div id="remote-update" class="remote-update" role="alert" hidden><span>另一台设备已更新这篇日记。当前草稿已保留，请先导出需要的内容，再重新加载。</span><button id="reload-entry">重新加载</button></div>
+    <div class="editor-scroll"><div class="editor-meta"><input type="date" id="entry-date" aria-label="日记日期"><span>·</span><span id="entry-origin">本地日记</span><button id="pin-entry" class="quiet"><span data-icon="bookmark"></span>收藏</button></div><input id="entry-title" class="entry-title" placeholder="给今天一个标题" aria-label="日记标题" maxlength="300"><input id="entry-tags" class="entry-tags" placeholder="# 添加标签，用空格分隔" aria-label="日记标签"><div id="import-sources" class="import-sources" hidden></div><div class="format-bar" id="format-bar"><button data-command="bold" aria-label="加粗"><b>B</b></button><button data-command="italic" aria-label="斜体"><i>I</i></button><button data-command="underline" aria-label="下划线"><u>U</u></button><span></span><button data-command="formatBlock" data-value="h2" aria-label="二级标题">H₂</button><button data-command="insertUnorderedList" aria-label="项目列表"><span data-icon="list"></span></button><button data-command="formatBlock" data-value="blockquote" aria-label="引用"><span data-icon="quote"></span></button><button data-command="undo" aria-label="撤销"><span data-icon="undo"></span></button><button data-command="redo" aria-label="重做"><span data-icon="redo"></span></button></div><div id="blocks"></div><div class="insert-bar"><span>插入内容</span><button data-insert="text"><span data-icon="text"></span>文本区</button><button data-insert="image"><span data-icon="image"></span>图片</button><button data-insert="html"><span data-icon="code"></span>HTML 区域</button></div><p class="editor-hint">文字与 HTML 可独立编辑，内容块可上下移动。粘贴或拖入图片，即可保留原图。</p></div>
+    <div class="editor-footer"><div><button id="entry-history"><span data-icon="clock"></span>历史版本</button><button id="download-entry" title="下载当前草稿的 JSON 文件"><span data-icon="download"></span>导出</button><button id="trash-entry"><span data-icon="trash"></span>移入回收站</button></div><button class="primary" id="save-entry">保存并关闭</button></div>
+  </dialog>
+  <dialog id="history-dialog" class="small-dialog"><div class="dialog-heading"><h2>历史版本</h2><button data-close="history-dialog" aria-label="关闭历史版本">×</button></div><p>恢复会新增一个版本，当前版本仍会保留。</p><div id="history-list"></div></dialog>
+  <dialog id="about-dialog" class="small-dialog"><div class="dialog-heading"><h2>关于朝花夕拾</h2><button data-close="about-dialog" aria-label="关闭说明">×</button></div><p>所有内容存放在运行服务的电脑上：</p><code id="data-path"></code><p>新增日记：<code>source/年/月/日/entry-*.json</code><br>新增原图：同目录的 <code>media-*.扩展名</code><br>历史版本：同目录的 <code>_history/</code></p><p>复制完整数据目录即可迁移。编辑需要 Node.js 和日记服务。请另做独立备份。</p><p>可通过 Tailscale 私人网络从其他设备访问同一份日记，电脑需在线且不休眠。没有离线编辑队列；未保存的草稿请勿关闭。日记、图片、身份配置和测试输出均排除在 Git 外，没有第三方统计。</p></dialog>
+  <dialog id="image-dialog" class="image-dialog"><button data-close="image-dialog" aria-label="关闭图片">×</button><img id="lightbox-image" alt="原图"><a id="lightbox-download" download>下载原图</a></dialog>
+  <div id="toast" role="status" class="toast" hidden></div><input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden>
+</body></html>

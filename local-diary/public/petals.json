@@ -1,0 +1,9 @@
+{
+  "desktopCount": 14,
+  "mobileCount": 8,
+  "durationSeconds": [34, 58],
+  "swaySeconds": [5, 9],
+  "driftPixels": [24, 74],
+  "sizePixels": [9, 16],
+  "opacity": [0.19, 0.32]
+}

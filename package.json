@@ -1,0 +1,34 @@
+{
+  "name": "onenote-local-notebook-site",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "check:privacy": "node scripts/check-public-content.mjs",
+    "build": "node scripts/build-site.mjs",
+    "verify": "node scripts/verify-site.mjs",
+    "verify:images": "node scripts/verify-render-images.mjs",
+    "verify:portable": "node scripts/portable-archive.mjs",
+    "seal:portable": "node scripts/portable-archive.mjs exports/LIFE --write",
+    "test": "node --test tests/*.test.mjs",
+    "preview": "node scripts/serve.mjs",
+    "diary": "node local-diary/server.mjs",
+    "test:diary": "node --test tests/local-diary.test.mjs",
+    "test:diary:browser": "node scripts/diary-browser-qa.mjs",
+    "test:daily:browser": "node scripts/daily-browser-qa.mjs",
+    "test:petals:browser": "node scripts/petals-browser-qa.mjs",
+    "test:sync:browser": "node scripts/sync-browser-qa.mjs",
+    "import:folders": "node scripts/import-diary-folders.mjs",
+    "verify:imports": "node scripts/verify-diary-imports.mjs",
+    "test:imports:browser": "node scripts/import-browser-qa.mjs",
+    "test:browser": "node scripts/browser-qa.mjs"
+  },
+  "dependencies": {
+    "cheerio": "1.1.2",
+    "fast-xml-parser": "5.11.2",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}
