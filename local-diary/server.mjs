@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DiaryStore, DiaryError, within, validId } from './store.mjs';
 import { remoteAccess, requestAccess } from './access.mjs';
+import { loadSettings } from './settings.mjs';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.xml': 'application/xml; charset=utf-8' };
@@ -86,7 +87,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   let remote;
   try { remote = JSON.parse(await fs.readFile(path.resolve(appRoot, '../local-state/remote-access.json'), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const instance = await createDiaryServer({ root: process.env.DIARY_ROOT, port: Number(process.env.DIARY_PORT ?? 8766), remote });
+  const settings=await loadSettings(path.resolve(appRoot,'..'));
+  const port=process.env.DIARY_PORT===undefined?settings.port:Number(process.env.DIARY_PORT);
+  if(!Number.isInteger(port)||port<1||port>65535)throw Error('日记端口必须是 1–65535 的整数');
+  const instance = await createDiaryServer({ root: process.env.DIARY_ROOT, port, remote });
   console.log(`LIFE_LOCAL_URL=${instance.url}`);
   console.log('朝花夕拾日记已启动。监听本机回环地址；远程访问仅通过已配置的 Tailscale Serve。');
 }

@@ -359,6 +359,7 @@ ASALocalRun/
 !/关闭本地日记.cmd
 !/开启手机访问.cmd
 !/关闭手机访问.cmd
+!/朝花夕拾.cmd
 /Config/archive-exclusions.json
 /docs/VALIDATION.md
 /docs/*-private.*
