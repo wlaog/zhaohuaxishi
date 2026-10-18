@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { DiaryStore, DiaryError, within, validId } from './store.mjs';
 import { remoteAccess, requestAccess } from './access.mjs';
 import { loadSettings } from './settings.mjs';
+import { DayStore } from './days.mjs';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.xml': 'application/xml; charset=utf-8' };
@@ -19,6 +20,7 @@ async function body(req, limit = 4_500_000) {
 export async function createDiaryServer({ root = path.resolve(appRoot, '../exports/LIFE'), port = 0, remote = null } = {}) {
   const access = remoteAccess(remote);
   const store = await new DiaryStore(root).init(), token = crypto.randomBytes(32).toString('hex');
+  const days = await new DayStore(store.root).init();
   const instance = crypto.randomBytes(12).toString('hex');
   let sequence = 0;
   const changeVersion = () => `${instance}:${sequence}`;
@@ -35,7 +37,13 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         if (req.method !== 'GET' && req.headers['x-diary-token'] !== token) throw new DiaryError(403, '保存凭据无效，请刷新页面');
         if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null });
         if (req.method === 'GET' && url.pathname === '/api/changes') return json(res, 200, { changeVersion: changeVersion() });
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { token, entries: store.list(), root: store.root, version: 1, changeVersion: changeVersion() });
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion() });
+        const dayMatch=url.pathname.match(/^\/api\/days\/([^/]+)$/);
+        if(dayMatch){
+          if(req.method==='GET')return json(res,200,await days.get(dayMatch[1]));
+          if(req.method==='PUT'){const saved=await days.save(dayMatch[1],JSON.parse(await body(req,5000)));sequence++;return json(res,200,saved);}
+          throw new DiaryError(405,'请求方法不支持');
+        }
         const match = url.pathname.match(/^\/api\/entries\/([^/]+)(?:\/(images|history|restore))?$/);
         if (!match || !validId(match[1])) throw new DiaryError(404, '接口不存在');
         const [, id, action] = match;
@@ -81,7 +89,7 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
   });
   server.requestTimeout = 60_000;
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
-  return { server, store, url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise(resolve => server.close(resolve)) };
+  return { server, store, days, url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise(resolve => server.close(resolve)) };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let remote;

@@ -39,6 +39,13 @@ try{
   await pc.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await pc.waitForFunction(()=>document.querySelector('.text-editor').innerText.includes('手机写入'));
   check('phone HTTPS save appears in a clean desktop editor without reloading the page');
+  await mobile.locator('#entry-day-meta button').click();
+  for(const choice of ['happy','anxious','sunny','rainy'])await mobile.locator(`[data-day-choice="${choice}"]`).click();
+  await mobile.locator('#save-day').click();await mobile.locator('#day-dialog').waitFor({state:'hidden'});
+  await pc.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await pc.waitForFunction(()=>document.querySelector('#entry-day-meta').innerText.includes('焦虑'));
+  assert.deepEqual((await app.days.get('2026-10-18')).weather,['sunny','rainy']);
+  check('phone HTTPS daily mood and weather selections reach desktop without changing entry content');
   const image=await sharp({create:{width:64,height:48,channels:3,background:'#52765a'}}).png().toBuffer();
   await mobile.locator('#image-input').setInputFiles({name:'phone.png',mimeType:'image/png',buffer:image});
   await mobile.locator('.block-image').waitFor();await mobile.locator('#save-entry').click();await mobile.locator('#editor-dialog').waitFor({state:'hidden'});
@@ -90,6 +97,7 @@ try{
   await mobile.screenshot({path:path.join(output,'phone.png'),fullPage:true});
   check('new phone diary reaches desktop timeline and mobile layout fits the viewport');
   login='stranger@example.invalid';const unauthorized=await mobile.goto(remoteUrl+'/api/bootstrap');assert.equal(unauthorized.status(),403);
+  assert.equal((await mobile.goto(remoteUrl+'/api/days/2026-10-18')).status(),403);
   check('another tailnet user cannot read diary data');
   assert.deepEqual(report.errors,[]);report.status='PASS';
 }catch(error){report.status='FAIL';report.errors.push(error.stack);process.exitCode=1;}

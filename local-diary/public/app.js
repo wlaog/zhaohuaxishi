@@ -1,3 +1,4 @@
+import {MOODS,WEATHERS,chosen,dayIcon,dayGradient,dayHasDetails,memoriesOn} from './day-model.js';
 const $ = selector => document.querySelector(selector);
 const paths = {
   search:'m21 21-4.3-4.3M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
@@ -21,6 +22,9 @@ const localDate = (date = new Date()) => `${date.getFullYear()}-${String(date.ge
 const uid = () => crypto.randomUUID().replaceAll('-','');
 const labels = {all:'全部日记',pinned:'我的收藏',images:'图片记忆',recent:'最近编辑',trash:'回收站'};
 const state = { entries:[], token:'', changeVersion:null, syncing:false, view:'all', query:'', date:'', month:'', tag:'', limit:20, ascending:false, calendar:new Date(), current:null, dirty:0, saved:0, saving:null, saveTimer:null, activeText:null, conflicts:false };
+state.days={};state.dayDraft=null;state.daySaving=false;
+state.calendarMode=['records','moods','weather'].includes(localStorage.getItem('diary-calendar-mode'))?localStorage.getItem('diary-calendar-mode'):'records';
+state.today=localDate();state.memoryDay=state.today.slice(5);state.memoryOldest=false;
 let toastTimer;
 function toast(message) { $('#toast').textContent=message; $('#toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,4500); }
 function status(message,error=false) { $('#save-status').textContent=message; $('#save-status').classList.toggle('error',error); }
@@ -45,7 +49,7 @@ function updateSummary(entry) {
   if(index<0) state.entries.push(row); else state.entries[index]=row;
 }
 async function reloadData() {
-  const data=await api('/api/bootstrap'); state.entries=data.entries; state.token=data.token; state.changeVersion=data.changeVersion; $('#data-path').textContent=data.root;
+  const data=await api('/api/bootstrap'); state.entries=data.entries; state.days=Object.fromEntries((data.days??[]).map(day=>[day.date,day])); state.token=data.token; state.changeVersion=data.changeVersion; $('#data-path').textContent=data.root;
   renderAll();
 }
 function connectionStatus(online) {
@@ -60,6 +64,12 @@ function showConflict() {
   status('其他设备已更新，当前草稿未覆盖',true);
 }
 async function syncRemote() {
+  if(state.today!==localDate()){
+    const previous=state.today;state.today=localDate();
+    if(state.memoryDay===previous.slice(5))state.memoryDay=state.today.slice(5);
+    if(!state.date&&localDate(state.calendar).slice(0,7)===previous.slice(0,7))state.calendar=new Date();
+    $('#today-label').textContent=new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});renderAll();
+  }
   if(state.syncing||state.saving||document.visibilityState==='hidden')return;
   state.syncing=true;
   const priorVersion=state.changeVersion;
@@ -136,26 +146,91 @@ function renderDirectory() {
 }
 function renderCalendar() {
   const y=state.calendar.getFullYear(),m=state.calendar.getMonth();
-  const years=state.entries.filter(e=>e.date&&!e.deleted).map(e=>Number(e.date.slice(0,4)));
+  const years=[...state.entries.filter(e=>e.date&&!e.deleted).map(e=>Number(e.date.slice(0,4))),...Object.values(state.days).filter(dayHasDetails).map(d=>Number(d.date.slice(0,4)))];
   const first=Math.min(new Date().getFullYear(),y,...years),last=Math.max(new Date().getFullYear()+5,y,...years);
   $('#calendar-year').innerHTML=Array.from({length:last-first+1},(_,i)=>`<option value="${first+i}" ${first+i===y?'selected':''}>${first+i} 年</option>`).join('');
   $('#calendar-month').innerHTML=Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===m?'selected':''}>${i+1} 月</option>`).join('');
-  const dates=new Set(state.entries.filter(e=>!e.deleted).map(e=>e.date));
+  const dates=new Set([...state.entries.filter(e=>!e.deleted).map(e=>e.date),...Object.values(state.days).filter(dayHasDetails).map(d=>d.date)]);
+  const mode=state.calendarMode;
+  $('#calendar').dataset.mode=mode;
+  document.querySelectorAll('[data-calendar-mode]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.calendarMode===mode)));
+  $('#calendar-legend-text').textContent=mode==='records'?'有记录的日子':mode==='moods'?'多种心情，以分色相伴':'多种天气，以分色相伴';
   const offset=(new Date(y,m,1).getDay()+6)%7,days=new Date(y,m+1,0).getDate();
   $('#calendar').innerHTML='<span></span>'.repeat(offset)+Array.from({length:days},(_,i)=>{
     const date=`${y}-${String(m+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
-    return `<button data-date="${date}" title="${date}${dates.has(date)?' · 有日记':''}" class="${dates.has(date)?'recorded':''} ${date===localDate()?'today':''} ${date===state.date?'selected':''}">${i+1}</button>`;
+    const selected=mode==='records'?[]:chosen(mode,state.days[date]?.[mode]??[]);
+    const label=`${date}${dates.has(date)?' · 有记录':''}${selected.length?' · '+selected.map(item=>item.label).join('、'):''}`;
+    return `<button data-date="${date}" title="${esc(label)}" aria-label="${esc(label)}" class="${mode==='records'&&dates.has(date)?'recorded':''} ${selected.length?'day-filled':''} ${date===localDate()?'today':''} ${date===state.date?'selected':''}" ${selected.length?`style="background:${dayGradient(selected)}"`:''}><span class="calendar-number">${i+1}</span>${selected.length?`<span class="calendar-symbols">${selected.slice(0,2).map(item=>dayIcon(mode,item.id)).join('')}${selected.length>2?`<small>+${selected.length-2}</small>`:''}</span>`:''}</button>`;
   }).join('');
 }
 function renderStats() {
-  const entries=state.entries.filter(e=>!e.group&&!e.deleted), dates=new Set(entries.map(e=>e.date));
+  const entries=state.entries.filter(e=>!e.group&&!e.deleted), dates=new Set([...entries.map(e=>e.date),...Object.values(state.days).filter(dayHasDetails).map(d=>d.date)]);
   $('#all-count').textContent=entries.length; $('#stat-days').textContent=dates.size; $('#stat-notes').textContent=entries.length;
   $('#stat-images').textContent=state.entries.filter(e=>!e.deleted).reduce((sum,e)=>sum+(e.imageCount??0),0).toLocaleString();
   $('#activity').innerHTML=Array.from({length:91},(_,index)=>{ const day=new Date(); day.setDate(day.getDate()-90+index); const date=localDate(day); return `<i title="${date}${dates.has(date)?' · 有记录':''}" class="${dates.has(date)?'has-entry':''}"></i>`; }).join('');
-  const today=localDate(), old=entries.filter(e=>e.date?.slice(5)===today.slice(5)&&e.date<today).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3);
-  $('#on-this-day').innerHTML=`<p>${icon('clock')} 那年今日</p>${old.length?old.map(e=>`<button data-open="${e.id}"><small>${esc(e.date)}</small><strong>${esc(e.title)}</strong></button>`).join(''):'<p style="font-size:10px;color:var(--muted)">慢慢记录，让今天成为以后的回忆。</p>'}`;
+  renderMemories();
 }
-function renderAll() { renderFeed();renderDirectory();renderCalendar();renderStats(); }
+function renderAll() { renderFeed();renderDirectory();renderCalendar();renderStats();renderDaySummaries(); }
+function daySummary(date,followToday=false){
+  const day=state.days[date],items=[...chosen('moods',day?.moods).map(item=>({...item,kind:'moods'})),...chosen('weather',day?.weather).map(item=>({...item,kind:'weather'}))];
+  return `<button class="day-summary" data-day-details="${followToday?'today':date}" aria-label="编辑 ${date} 的心情与天气">${items.length?items.map(item=>`<span>${dayIcon(item.kind,item.id)}${item.label}</span>`).join(''):'<span class="day-summary-empty">'+dayIcon('moods','calm')+'心情与天气，随心记一点</span>'}<small>${items.length?'编辑':'可多选 · 可留空'}</small></button>`;
+}
+function renderDaySummaries(){
+  $('#quick-day-meta').innerHTML=daySummary(state.date||localDate(),!state.date);
+  const date=state.current?.date;$('#entry-day-meta').hidden=!date||!!state.current?.group;
+  if(date)$('#entry-day-meta').innerHTML=daySummary(date);
+}
+async function openDayDetails(date){
+  try{
+    const day=await api(`/api/days/${date}`);state.days[date]=day;state.dayDraft={...day,dirty:false};
+    $('#day-date').textContent=date;$('#day-save-status').textContent='';$('#reload-day').hidden=true;
+    renderDayChoices();$('#day-dialog').showModal();
+  }catch(error){toast(error.message);}
+}
+function renderDayChoices(){
+  const draft=state.dayDraft;if(!draft)return;
+  for(const [kind,list,target] of [['moods',MOODS,'mood-choices'],['weather',WEATHERS,'weather-choices']]){
+    $('#'+target).innerHTML=list.map(item=>`<button type="button" data-day-kind="${kind}" data-day-choice="${item.id}" aria-pressed="${draft[kind].includes(item.id)}" style="--choice-color:${item.color}">${dayIcon(kind,item.id)}<span>${item.label}</span><i aria-hidden="true">✓</i></button>`).join('');
+  }
+}
+function cancelDay(){
+  if(state.daySaving)return;
+  if(state.dayDraft?.dirty&&!confirm('放弃尚未保存的心情和天气选择？'))return;
+  $('#day-dialog').close();state.dayDraft=null;
+}
+async function saveDay(){
+  if(state.daySaving||!state.dayDraft)return;
+  if(!state.dayDraft.dirty){$('#day-dialog').close();state.dayDraft=null;return;}
+  state.daySaving=true;$('#save-day').disabled=true;$('#day-save-status').textContent='正在保存…';
+  const draft=state.dayDraft;
+  try{
+    const saved=await api(`/api/days/${draft.date}`,{method:'PUT',body:JSON.stringify({revision:draft.revision,moods:draft.moods,weather:draft.weather})});
+    state.days[saved.date]=saved;state.dayDraft=null;$('#day-dialog').close();renderAll();toast('这一天的心情与天气已保存');
+  }catch(error){$('#day-save-status').textContent=error.message;$('#reload-day').hidden=error.status!==409;}
+  finally{state.daySaving=false;$('#save-day').disabled=false;}
+}
+function memoryControls(){
+  const [month,day]=state.memoryDay.split('-').map(Number),days=new Date(2000,month,0).getDate();
+  return `<button data-memory-step="-1" aria-label="回顾前一天">${icon('left')}</button><label><span class="sr-only">回顾月份</span><select data-memory-month>${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===month?'selected':''}>${i+1} 月</option>`).join('')}</select></label><label><span class="sr-only">回顾日期</span><select data-memory-date>${Array.from({length:days},(_,i)=>`<option value="${i+1}" ${i+1===day?'selected':''}>${i+1} 日</option>`).join('')}</select></label><button data-memory-step="1" aria-label="回顾后一天">${icon('right')}</button><button data-memory-today class="memory-today">今天</button>`;
+}
+function memoryCard(entry){
+  const ago=new Date().getFullYear()-Number(entry.date.slice(0,4));
+  const excerpt=(entry.previewText||entry.excerpt||'').replace(entry.title,'').trim().slice(0,100);
+  return `<button class="memory-card" data-open="${entry.id}"><span class="memory-year">${entry.date.slice(0,4)}<small>${ago} 年前</small></span><span class="memory-body"><strong>${esc(entry.title)}</strong>${excerpt?`<span>${esc(excerpt)}</span>`:''}<small>${esc(entry.date)} · 打开这段回忆 ${icon('arrow')}</small></span></button>`;
+}
+function renderMemories(){
+  let entries=memoriesOn(state.entries,state.memoryDay);if(state.memoryOldest)entries=entries.toReversed();
+  const count=`${new Set(entries.map(e=>e.date.slice(0,4))).size} 个年份 · ${entries.length} 篇记录`;
+  const empty='<p class="memory-empty">这一天还没有往年的记录。<br>翻翻相邻日子，或随手拾起一段回忆。</p>';
+  $('#on-this-day').innerHTML=`<div class="memory-heading"><strong>${icon('clock')} 那年今日</strong><button data-memory-random title="随机选择一个有回忆的日期">随手翻一天</button></div><div class="memory-controls">${memoryControls()}</div><p class="memory-count">${count}</p>${entries.length?entries.slice(0,2).map(memoryCard).join(''):empty}<button class="memory-expand" data-memory-expand>展开往年回顾 ${icon('arrow')}</button>`;
+  $('#memories-controls').innerHTML=memoryControls()+`<button data-memory-random class="quiet">随手翻一天</button>`;
+  $('#memories-count').textContent=count;$('#memory-sort').textContent=state.memoryOldest?'最早年份在前':'最近年份在前';
+  $('#memories-list').innerHTML=entries.length?entries.map(memoryCard).join(''):empty;
+}
+function changeMemory(month,day){
+  const last=new Date(2000,month,0).getDate();state.memoryDay=`${String(month).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`;renderMemories();
+}
+function closeOverview(){if($('#overview-dialog').open)$('#overview-dialog').close();}
 function clearFilters() { state.date='';state.month='';state.tag='';state.limit=20; }
 function setView(view) { state.view=view;clearFilters();state.query='';$('#search').value='';renderAll();$('#sidebar').classList.remove('open'); }
 
@@ -212,6 +287,7 @@ function fillEditor() {
   $('#import-sources').hidden=!e.importSources?.length;
   $('#import-sources').innerHTML=(e.importSources??[]).map(s=>`<div><span>${esc(s.source)}${s.ranged?' · '+esc(s.rangeStart)+'～'+esc(s.rangeEnd):''}</span><a href="/archive/${esc(s.originalPath)}" download>下载原件</a>${s.viewPath?`<a href="/archive/${esc(s.viewPath)}" target="_blank" rel="noopener">独立查看 ↗</a>`:''}</div>`).join('');
   $('#entry-date').hidden=!!e.group;
+  renderDaySummaries();
   $('#editor-label').textContent=e.deleted?'回收站中的日记':'日记';
   $('#pin-entry').classList.toggle('pinned',e.pinned);
   $('#trash-entry').innerHTML=icon(e.deleted?'undo':'trash')+(e.deleted?'恢复日记':'移入回收站');
@@ -220,6 +296,7 @@ function fillEditor() {
 async function openEntry(id) {
   if($('#editor-dialog').open){await closeEditor();if($('#editor-dialog').open)return;}
   try {
+    closeOverview();$('#memories-dialog').close();
     state.current=await api(`/api/entries/${id}`);state.dirty=state.saved=0;state.conflicts=false;
     fillEditor();status('已保存到电脑');$('#editor-dialog').showModal();
     history.replaceState(null,'',`#entry=${id}`);
@@ -331,6 +408,19 @@ async function showHistory() {
 
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button,a,img');if(!button)return;
+  if(button.dataset.dayDetails){await openDayDetails(button.dataset.dayDetails==='today'?localDate():button.dataset.dayDetails);return;}
+  if(button.dataset.dayChoice){
+    if(state.daySaving)return;
+    const draft=state.dayDraft,kind=button.dataset.dayKind,id=button.dataset.dayChoice;
+    if(!draft)return;draft[kind]=draft[kind].includes(id)?draft[kind].filter(value=>value!==id):[...draft[kind],id];draft.dirty=true;
+    // Keep the clicked button focused for keyboard and touch selection.
+    button.setAttribute('aria-pressed',String(draft[kind].includes(id)));return;
+  }
+  if(button.dataset.calendarMode){state.calendarMode=button.dataset.calendarMode;localStorage.setItem('diary-calendar-mode',state.calendarMode);renderCalendar();return;}
+  if(button.dataset.memoryStep){const [m,d]=state.memoryDay.split('-').map(Number),next=new Date(2000,m-1,d+Number(button.dataset.memoryStep));changeMemory(next.getMonth()+1,next.getDate());return;}
+  if(button.hasAttribute('data-memory-today')){state.memoryDay=localDate().slice(5);renderMemories();return;}
+  if(button.hasAttribute('data-memory-random')){const dates=[...new Set(state.entries.filter(e=>!e.deleted&&!e.group&&e.date&&Number(e.date.slice(0,4))<new Date().getFullYear()).map(e=>e.date.slice(5)))];if(dates.length){state.memoryDay=dates[Math.floor(Math.random()*dates.length)];renderMemories();}else toast('慢慢记录，让今天成为以后的回忆。');return;}
+  if(button.hasAttribute('data-memory-expand')){closeOverview();$('#memories-dialog').showModal();return;}
   if(button.dataset.view)setView(button.dataset.view);
   if(button.dataset.action==='new')await newEntry();
   if(button.dataset.action==='daily')await writeDaily();
@@ -340,7 +430,7 @@ document.addEventListener('click',async event=>{
   if(button.dataset.pin)await pin(button.dataset.pin);
   if(button.dataset.month){clearFilters();state.month=button.dataset.month;state.calendar=new Date(state.month+'-01T12:00:00');renderAll();}
   if(button.dataset.tag){clearFilters();state.tag=button.dataset.tag;renderAll();}
-  if(button.dataset.date){const date=button.dataset.date;clearFilters();state.date=date;renderAll();}
+  if(button.dataset.date){const date=button.dataset.date;clearFilters();state.date=date;renderAll();closeOverview();}
   if(button.dataset.lightbox)lightbox(button.dataset.lightbox);
   if(button.dataset.close)$('#'+button.dataset.close).close();
   if(button.dataset.insert)addBlock(button.dataset.insert);
@@ -360,6 +450,19 @@ document.addEventListener('click',async event=>{
     try{const e=await api(`/api/entries/${state.current.id}/restore`,{method:'POST',body:JSON.stringify({revision:state.current.revision,restoreRevision:Number(button.dataset.restore)})});state.current=e;state.dirty=state.saved=0;fillEditor();status('已恢复并保存');updateSummary(e);renderAll();$('#history-dialog').close();toast('历史版本已恢复，替换前的版本仍保留');}catch(error){toast(error.message);}
   }
 });
+document.addEventListener('change',event=>{
+  const [month,day]=state.memoryDay.split('-').map(Number);
+  if(event.target.hasAttribute('data-memory-month'))changeMemory(Number(event.target.value),day);
+  if(event.target.hasAttribute('data-memory-date'))changeMemory(month,Number(event.target.value));
+});
+$('#memory-sort').onclick=()=>{state.memoryOldest=!state.memoryOldest;renderMemories();};
+$('#save-day').onclick=saveDay;$('#cancel-day').onclick=cancelDay;$('#cancel-day-x').onclick=cancelDay;
+$('#day-dialog').addEventListener('cancel',event=>{event.preventDefault();cancelDay();});
+$('#clear-day').onclick=()=>{if(state.daySaving)return;state.dayDraft.moods=[];state.dayDraft.weather=[];state.dayDraft.dirty=true;renderDayChoices();};
+$('#reload-day').onclick=async()=>{if(state.daySaving)return;try{const draft=await api(`/api/days/${state.dayDraft.date}`);state.dayDraft={...draft,dirty:false};state.days[draft.date]=draft;renderDayChoices();renderDaySummaries();$('#day-save-status').textContent='已载入最新记录，可以继续修改。';$('#reload-day').hidden=true;}catch(error){$('#day-save-status').textContent=error.message;}};
+$('#show-overview').onclick=()=>{$('#overview-content').appendChild($('.rightbar'));$('#overview-dialog').showModal();};
+$('#overview-dialog').addEventListener('close',()=>$('.columns').appendChild($('.rightbar')));
+window.addEventListener('resize',()=>{if(innerWidth>980)closeOverview();});
 $('#search').addEventListener('input',()=>{state.query=$('#search').value;state.limit=20;$('#clear-search').hidden=!state.query;renderFeed();});
 $('#clear-search').onclick=()=>{$('#search').value='';state.query='';$('#clear-search').hidden=true;renderFeed();};
 $('#focus-search').onclick=()=>{$('#search').focus();$('#sidebar').classList.remove('open');};
@@ -379,7 +482,7 @@ $('#about').onclick=()=>$('#about-dialog').showModal();
 $('#today-label').textContent=new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
 $('#close-editor').onclick=closeEditor;$('#save-entry').onclick=closeEditor;
 $('#editor-dialog').addEventListener('cancel',event=>{event.preventDefault();closeEditor();});
-$('#entry-title').oninput=changed;$('#entry-tags').oninput=changed;$('#entry-date').onchange=changed;
+$('#entry-title').oninput=changed;$('#entry-tags').oninput=changed;$('#entry-date').onchange=()=>{changed();renderDaySummaries();};
 $('#pin-entry').onclick=()=>{state.current.pinned=!state.current.pinned;$('#pin-entry').classList.toggle('pinned',state.current.pinned);changed();};
 $('#trash-entry').onclick=async()=>{
   if(!state.current.deleted&&!confirm('将这篇日记移入回收站？之后可以恢复，原始资料仍保留。'))return;
@@ -424,7 +527,7 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();if(!$('#editor-dialog').open)$('#search').focus();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&$('#editor-dialog').open){event.preventDefault();flush().catch(()=>{});}
 });
-window.addEventListener('beforeunload',event=>{if(state.dirty>state.saved||state.saving){event.preventDefault();event.returnValue='';}});
+window.addEventListener('beforeunload',event=>{if(state.dirty>state.saved||state.saving||state.dayDraft?.dirty||state.daySaving){event.preventDefault();event.returnValue='';}});
 window.addEventListener('resize',()=>document.querySelectorAll('.archive-frame').forEach(fitArchive));
 window.addEventListener('hashchange',()=>{const id=location.hash.match(/^#entry=([\w-]+)$/)?.[1];if(id&&state.current?.id!==id)openEntry(id);});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&state.dirty>state.saved)flush().catch(()=>{});else if(document.visibilityState==='visible')syncRemote();});

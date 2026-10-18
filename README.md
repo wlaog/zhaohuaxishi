@@ -1,6 +1,6 @@
 # 朝花夕拾
 
-一个个人日记网页应用。支持按日期浏览、搜索、标签、自动保存和历史版本。
+一个个人日记网页应用。支持按日期浏览、搜索、标签、自动保存和历史版本，也能记录每日心情与天气、翻看往年回忆。
 
 ## 使用
 
@@ -23,8 +23,8 @@ npm run diary
 
 ## 数据
 
-内容保存在 `exports/LIFE/`，设置保存在 `local-state/`。日记、图片、私人配置和运行日志不会提交到 Git；迁移或备份时请另外复制数据目录。未保存的草稿请勿关闭或刷新页面。
+内容保存在 `exports/LIFE/`，每日心情与天气存于日期目录的 `day.json`，设置保存在 `local-state/`。日记、图片、私人配置和运行日志不会提交到 Git；迁移或备份时请另外复制数据目录。未保存的草稿请勿关闭或刷新页面。
 
 ## 致谢
 
-界面参考 [Memos](https://github.com/usememos/memos)。使用 Cheerio、fast-xml-parser、sharp、Playwright，以及可选的 Tailscale。许可说明见 [第三方声明](local-diary/THIRD_PARTY_NOTICES.md)，依赖版本见 [package.json](package.json)。
+界面参考 [Memos](https://github.com/usememos/memos)，回顾与心情日历交互参考 [Day One](https://dayoneapp.com/features/) 和 [Daylio](https://daylio.net/)。使用 Cheerio、fast-xml-parser、sharp、Playwright，以及可选的 Tailscale。许可说明见 [第三方声明](local-diary/THIRD_PARTY_NOTICES.md)，依赖版本见 [package.json](package.json)。

@@ -1,7 +1,7 @@
 {
   "name": "onenote-local-notebook-site",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "check:privacy": "node scripts/check-public-content.mjs",
@@ -16,6 +16,7 @@
     "test:diary": "node --test tests/local-diary.test.mjs",
     "test:diary:browser": "node scripts/diary-browser-qa.mjs",
     "test:daily:browser": "node scripts/daily-browser-qa.mjs",
+    "test:days:browser": "node scripts/day-browser-qa.mjs",
     "test:petals:browser": "node scripts/petals-browser-qa.mjs",
     "test:sync:browser": "node scripts/sync-browser-qa.mjs",
     "import:folders": "node scripts/import-diary-folders.mjs",
