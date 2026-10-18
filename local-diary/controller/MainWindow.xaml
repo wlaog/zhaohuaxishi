@@ -12,7 +12,7 @@
  <Grid Margin="30,23,30,19">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid Margin="0,0,0,22"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <Border Width="48" Height="48" CornerRadius="15" Background="#E2EBD9" Margin="0,0,14,0"><Viewbox Margin="12"><Canvas Width="24" Height="24"><Path Data="M3,20 C6,8 9,3 21,3 C21,16 15,22 6,18 M6,18 L17,7" Stroke="#52734D" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Canvas></Viewbox></Border>
+   <Image x:Name="BrandIcon" Width="48" Height="48" Margin="0,0,14,0" RenderOptions.BitmapScalingMode="HighQuality"/>
    <StackPanel Grid.Column="1"><TextBlock Text="朝花夕拾" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="一方安静的地方，收藏每一天。" FontSize="12" Foreground="#7C897E" Margin="0,5,0,0"/></StackPanel>
    <Border Grid.Column="2" CornerRadius="12" Background="#E7EDE3" Padding="13,8" VerticalAlignment="Center"><TextBlock x:Name="ServiceStatus" Text="正在检测" FontSize="12" Foreground="#52734D"/></Border>
   </Grid>

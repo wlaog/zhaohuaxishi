@@ -15,6 +15,8 @@ try{$guiAcquired=$guiMutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{
 if(!$guiAcquired){[Windows.MessageBox]::Show('控制台已经打开，请查看现有窗口。','朝花夕拾') | Out-Null;$guiMutex.Dispose();exit}
 $layout=Get-Content -LiteralPath (Join-Path $PSScriptRoot '../local-diary/controller/MainWindow.xaml') -Raw -Encoding UTF8
 $window=[Windows.Markup.XamlReader]::Parse($layout)
+$window.Icon=[Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../local-diary/controller/icon.ico'))))
+$window.FindName('BrandIcon').Source=[Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../local-diary/controller/icon.png'))))
 if($ProjectRoot -ne [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))){$window.Title+=' · 测试'}
 $controls=@{}
 foreach($name in @('ServiceStatus','Notice','NoticeText','Progress','RuntimeStatus','InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','CopyPhoneButton','OpenPhoneButton','TailscaleHelpButton','ApplyButton','LocalPort','HttpsPort','LocalAddress','PhoneAddress','PhoneStatus','LogText','LogExpander')){$controls[$name]=$window.FindName($name)}
