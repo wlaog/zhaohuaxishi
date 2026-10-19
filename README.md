@@ -12,6 +12,8 @@ Windows 双击 **朝花夕拾.cmd** 打开控制台。首次点击「一键安�
 
 手机和电脑登录同一 Tailscale 账号，在控制台开启手机访问并复制地址到手机浏览器。电脑需在线且不休眠；首次开启可能需要按提示启用 Tailscale HTTPS。
 
+也可在控制台使用 **Sakura Frp · 密码登录**：电脑运行 Sakura 官方启动器，手机直接通过 HTTPS 地址访问，输入日记密码。该选项与 Tailscale 独立保留。首次需要注册账号、配置隧道与证书，见 [Sakura Frp 配置步骤](docs/SAKURA-FRP.md)。
+
 也可使用 Node.js 22 或更新版本手动运行：
 
 ```sh

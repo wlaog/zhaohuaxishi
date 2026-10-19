@@ -8,6 +8,7 @@ import { DiaryStore, DiaryError, within, validId } from './store.mjs';
 import { remoteAccess, requestAccess } from './access.mjs';
 import { loadSettings } from './settings.mjs';
 import { DayStore } from './days.mjs';
+import { sakuraAccess, createSakuraAuth } from './sakura-auth.mjs';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.xml': 'application/xml; charset=utf-8' };
@@ -17,27 +18,56 @@ async function body(req, limit = 4_500_000) {
   for await (const part of req) { size += part.length; if (size > limit) throw new DiaryError(413, '请求内容过大'); parts.push(part); }
   return Buffer.concat(parts);
 }
-export async function createDiaryServer({ root = path.resolve(appRoot, '../exports/LIFE'), port = 0, remote = null } = {}) {
+export async function createDiaryServer({ root = path.resolve(appRoot, '../exports/LIFE'), port = 0, remote = null, sakura = null } = {}) {
   const access = remoteAccess(remote);
+  const sakuraConfig = sakuraAccess(sakura);
+  const auth = sakuraConfig && createSakuraAuth(sakuraConfig);
   const store = await new DiaryStore(root).init(), token = crypto.randomBytes(32).toString('hex');
   const days = await new DayStore(store.root).init();
   const instance = crypto.randomBytes(12).toString('hex');
   let sequence = 0;
   const changeVersion = () => `${instance}:${sequence}`;
-  const server = http.createServer(async (req, res) => {
+  const handler = isSakura => async (req, res) => {
     try {
-      const connection = requestAccess(req, server.address().port, access);
+      const connection = isSakura ? auth.connection(req) : requestAccess(req, server.address().port, access);
       const url = new URL(req.url, connection.origin);
+      if (url.origin !== connection.origin) throw new DiaryError(403, '访问地址无效');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
       res.setHeader('Cache-Control', 'no-store');
       if (req.headers.origin && req.headers.origin !== connection.origin) throw new DiaryError(403, '来源无效');
+      if (isSakura) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        const entryNavigation = req.method === 'GET' && ['/', '/login'].includes(url.pathname)
+          && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
+        if (req.headers['sec-fetch-site'] === 'cross-site' && !entryNavigation) throw new DiaryError(403, '来源无效');
+        if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin !== connection.origin) throw new DiaryError(403, '来源无效');
+        const publicFiles = { '/login':'login.html', '/auth/login.js':'login.js', '/auth/style.css':'login.css' };
+        if (req.method === 'GET' && Object.hasOwn(publicFiles, url.pathname)) {
+          res.setHeader('Content-Type', mime[path.extname(publicFiles[url.pathname])]);
+          return res.end(await fs.readFile(path.join(appRoot, 'public', publicFiles[url.pathname])));
+        }
+        if (url.pathname === '/auth/login' && req.method === 'POST') {
+          if (req.headers['content-type'] !== 'application/json') throw new DiaryError(415, '需要 JSON 登录请求');
+          await auth.login(JSON.parse(await body(req, 2048)).password, res);
+          return json(res, 200, { ok:true });
+        }
+        if (!auth.authenticated(req)) {
+          if (req.method === 'GET' && url.pathname === '/') { res.writeHead(302, { Location:'/login' }); return res.end(); }
+          throw new DiaryError(401, '登录已过期，请重新登录；当前草稿仍保留在此页');
+        }
+        if (url.pathname === '/auth/logout' && req.method === 'POST') {
+          auth.logout(req, res);
+          return json(res, 200, { ok:true });
+        }
+      }
       if (url.pathname.startsWith('/api/')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DiaryError(403, '来源无效');
         if (req.method !== 'GET' && req.headers['x-diary-token'] !== token) throw new DiaryError(403, '保存凭据无效，请刷新页面');
-        if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null });
+        if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null, sakuraOrigin:sakuraConfig?.origin ?? null, sakuraPort:sakuraServer?.address()?.port ?? null });
         if (req.method === 'GET' && url.pathname === '/api/changes') return json(res, 200, { changeVersion: changeVersion() });
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion() });
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion(), remoteSession:isSakura });
         const dayMatch=url.pathname.match(/^\/api\/days\/([^/]+)$/);
         if(dayMatch){
           if(req.method==='GET')return json(res,200,await days.get(dayMatch[1]));
@@ -86,19 +116,34 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
       const status = error.status ?? (error.code === 'ENOENT' ? 404 : error instanceof SyntaxError || error instanceof URIError ? 400 : 500);
       json(res, status, { error: status === 500 ? '本地保存失败，请检查磁盘空间、权限及资料文件。草稿仍保留在当前窗口。' : error.message });
     }
+  };
+  const server = http.createServer(handler(false));
+  const sakuraServer = sakuraConfig ? http.createServer(handler(true)) : null;
+  const listeners = [server, sakuraServer].filter(Boolean);
+  const listen = (listener, number) => new Promise((resolve, reject) => {
+    listener.requestTimeout = 60_000;
+    const onError = error => { listener.off('listening', onListening); reject(error); };
+    const onListening = () => { listener.off('error', onError); resolve(); };
+    listener.once('error', onError); listener.once('listening', onListening); listener.listen(number, '127.0.0.1');
   });
-  server.requestTimeout = 60_000;
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
-  return { server, store, days, url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise(resolve => server.close(resolve)) };
+  const close = () => Promise.all(listeners.map(listener => new Promise(resolve => listener.close(resolve))));
+  try {
+    await listen(server, port);
+    if (sakuraServer) await listen(sakuraServer, sakuraConfig.port);
+  } catch (error) { await close(); throw error; }
+  return { server, sakuraServer, store, days, url: `http://127.0.0.1:${server.address().port}`, close };
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let remote;
   try { remote = JSON.parse(await fs.readFile(path.resolve(appRoot, '../local-state/remote-access.json'), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
+  let sakura;
+  try { sakura = JSON.parse(await fs.readFile(path.resolve(appRoot, '../local-state/sakura-access.json'), 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
   const settings=await loadSettings(path.resolve(appRoot,'..'));
   const port=process.env.DIARY_PORT===undefined?settings.port:Number(process.env.DIARY_PORT);
   if(!Number.isInteger(port)||port<1||port>65535)throw Error('日记端口必须是 1–65535 的整数');
-  const instance = await createDiaryServer({ root: process.env.DIARY_ROOT, port, remote });
+  const instance = await createDiaryServer({ root: process.env.DIARY_ROOT, port, remote, sakura });
   console.log(`LIFE_LOCAL_URL=${instance.url}`);
-  console.log('朝花夕拾日记已启动。监听本机回环地址；远程访问仅通过已配置的 Tailscale Serve。');
+  console.log('朝花夕拾日记已启动。仅监听本机回环地址；支持已配置的 Tailscale Serve 和 Sakura Frp 独立登录入口。');
 }

@@ -36,6 +36,7 @@ async function api(url, options={}) {
   try { response=await fetch(url,{...options,headers}); }
   catch { throw new Error('无法连接电脑，请检查网络；未保存的草稿暂留此页，请勿关闭。'); }
   const data=await response.json();
+  if(response.status===401 && !$('#auth-dialog').open) $('#auth-dialog').showModal();
   if(!response.ok) { const error=new Error(data.error || '本地服务连接失败'); error.status=response.status; throw error; }
   return data;
 }
@@ -50,6 +51,7 @@ function updateSummary(entry) {
 }
 async function reloadData() {
   const data=await api('/api/bootstrap'); state.entries=data.entries; state.days=Object.fromEntries((data.days??[]).map(day=>[day.date,day])); state.token=data.token; state.changeVersion=data.changeVersion; $('#data-path').textContent=data.root;
+  $('#remote-logout').hidden=!data.remoteSession;
   renderAll();
 }
 function connectionStatus(online) {
@@ -534,6 +536,26 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('focus',syncRemote);
 window.addEventListener('online',syncRemote);
 window.addEventListener('offline',()=>connectionStatus(false));
+$('#auth-cancel').onclick=()=>$('#auth-dialog').close();
+$('#reauth-form').onsubmit=async event=>{
+  event.preventDefault();
+  const button=event.currentTarget.querySelector('button');button.disabled=true;
+  try{
+    const response=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('#reauth-password').value})});
+    const data=await response.json();if(!response.ok)throw Error(data.error);
+    $('#reauth-password').value='';$('#reauth-status').textContent='';$('#auth-dialog').close();
+    // Refresh the write token after service restarts without replacing an unsaved draft.
+    state.changeVersion=null;await syncRemote();toast('已重新登录，可以继续记录。');
+  }catch(error){$('#reauth-status').textContent=error.message;}finally{button.disabled=false;}
+};
+$('#remote-logout').onclick=async()=>{
+  if(state.dirty!==state.saved||state.saving||state.dayDraft?.dirty||state.daySaving){toast('请先保存或导出当前草稿，再退出登录。');return;}
+  try{
+    const response=await fetch('/auth/logout',{method:'POST'});
+    if(!response.ok && response.status!==401)throw Error('退出未完成，请重试');
+    location.replace('/login');
+  }catch(error){toast(error.message);}
+};
 setInterval(syncRemote,15_000);
 renderIcons();
 try{await reloadData();connectionStatus(true);const id=location.hash.match(/^#entry=([\w-]+)$/)?.[1];if(id)await openEntry(id);}

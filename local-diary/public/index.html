@@ -25,6 +25,7 @@
     <div id="directory" class="directory"></div>
     <div class="sidebar-label">标签</div><div id="tags" class="tags-list"></div>
     <div class="sidebar-bottom">
+      <button id="remote-logout" class="quiet" hidden>退出远程登录</button>
       <div class="profile"><span class="avatar">拾</span><div><strong>朝花夕拾</strong><small><i class="online-dot"></i>仅保存在本机</small></div><button id="theme" aria-label="切换深浅主题" title="切换深浅主题"><span data-icon="sun"></span></button></div>
     </div>
   </aside>
@@ -71,5 +72,6 @@
   <dialog id="history-dialog" class="small-dialog"><div class="dialog-heading"><h2>历史版本</h2><button data-close="history-dialog" aria-label="关闭历史版本">×</button></div><p>恢复会新增一个版本，当前版本仍会保留。</p><div id="history-list"></div></dialog>
   <dialog id="about-dialog" class="small-dialog"><div class="dialog-heading"><h2>关于朝花夕拾</h2><button data-close="about-dialog" aria-label="关闭说明">×</button></div><p>所有内容存放在运行服务的电脑上：</p><code id="data-path"></code><p>新增日记：<code>source/年/月/日/entry-*.json</code><br>新增原图：同目录的 <code>media-*.扩展名</code><br>历史版本：同目录的 <code>_history/</code></p><p>复制完整数据目录即可迁移。编辑需要 Node.js 和日记服务。请另做独立备份。</p><p>可通过 Tailscale 私人网络从其他设备访问同一份日记，电脑需在线且不休眠。没有离线编辑队列；未保存的草稿请勿关闭。日记、图片、身份配置和测试输出均排除在 Git 外，没有第三方统计。</p></dialog>
   <dialog id="image-dialog" class="image-dialog"><button data-close="image-dialog" aria-label="关闭图片">×</button><img id="lightbox-image" alt="原图"><a id="lightbox-download" download>下载原图</a></dialog>
+  <dialog id="auth-dialog" class="small-dialog" aria-labelledby="auth-title"><div class="dialog-heading"><h2 id="auth-title">重新登录</h2><button id="auth-cancel" aria-label="稍后登录">×</button></div><p>登录已过期。当前草稿仍保留，输入访问密码后可继续保存。</p><form id="reauth-form"><label for="reauth-password">访问密码</label><input id="reauth-password" type="password" autocomplete="current-password" maxlength="256" required><p id="reauth-status" role="status"></p><button class="primary compact" type="submit">继续记录</button></form></dialog>
   <div id="toast" role="status" class="toast" hidden></div><input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden>
 </body></html>

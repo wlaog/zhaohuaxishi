@@ -34,11 +34,25 @@
       <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="StartButton" Style="{StaticResource Primary}" Content="启动并打开日记"/><Button x:Name="StopButton" Grid.Column="2" Content="停止服务"/></Grid>
      </StackPanel></Border>
      <Border Style="{StaticResource Card}"><StackPanel>
-      <TextBlock Text="03  /  另一台设备" Foreground="#87967F" FontSize="11"/><TextBlock Text="在手机上继续" FontSize="19" FontWeight="SemiBold" Margin="0,9,0,7"/>
+      <TextBlock Text="03  /  另一台设备" Foreground="#87967F" FontSize="11"/><TextBlock Text="Tailscale · 私人网络" FontSize="19" FontWeight="SemiBold" Margin="0,9,0,7"/>
       <TextBlock x:Name="PhoneStatus" Text="正在检测 Tailscale" Foreground="#7D897F" FontSize="12" TextWrapping="Wrap"/>
       <TextBox x:Name="PhoneAddress" Style="{StaticResource Address}" Text="连接 Tailscale 后自动生成地址" TextWrapping="Wrap"/>
       <Grid Margin="0,7,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions><Button x:Name="EnablePhoneButton" Content="开启手机访问"/><Button x:Name="DisablePhoneButton" Content="关闭手机访问" Grid.Column="2"/></Grid>
       <StackPanel Orientation="Horizontal" Margin="0,9,0,0"><Button x:Name="CopyPhoneButton" Content="复制地址" Background="Transparent" Padding="2,7" FontSize="11"/><Button x:Name="OpenPhoneButton" Content="浏览器打开" Background="Transparent" Padding="12,7" FontSize="11"/><Button x:Name="TailscaleHelpButton" Content="连接指引" Background="Transparent" Padding="2,7" FontSize="11"/></StackPanel>
+     </StackPanel></Border>
+     <Border Style="{StaticResource Card}" Margin="0,14,0,0"><StackPanel>
+      <TextBlock Text="04  /  浏览器直接访问" Foreground="#87967F" FontSize="11"/><TextBlock Text="Sakura Frp · 密码登录" FontSize="19" FontWeight="SemiBold" Margin="0,9,0,7"/>
+      <TextBlock x:Name="SakuraStatus" Text="尚未配置。先查看配置指引，完成账号和隧道设置。" Foreground="#7D897F" FontSize="12" TextWrapping="Wrap"/>
+      <TextBlock Text="手机 HTTPS 地址（包含隧道的远程端口）" FontSize="12" Margin="0,16,0,7"/><TextBox x:Name="SakuraOrigin" AutomationProperties.Name="Sakura 手机 HTTPS 地址"/>
+      <TextBlock Text="例如 https://你的子域名.nyat.app:远程端口" FontSize="11" Foreground="#929A90" TextWrapping="Wrap" Margin="0,5,0,12"/>
+      <TextBlock Text="独立入口的本地端口" FontSize="12" Margin="0,0,0,7"/><TextBox x:Name="SakuraPort" Text="8767" MaxLength="5" AutomationProperties.Name="Sakura 独立入口本地端口"/>
+      <TextBlock Text="Sakura 隧道填本地 IP 127.0.0.1 和此端口；请勿指向上方日记端口。" FontSize="11" Foreground="#929A90" TextWrapping="Wrap" Margin="0,5,0,12"/>
+      <TextBlock Text="日记访问密码（至少 12 个字符）" FontSize="12" Margin="0,0,0,7"/><PasswordBox x:Name="SakuraPassword" Padding="11,9" FontSize="14" Background="#F7F8F4" BorderBrush="#DDE4DA" MaxLength="256" AutomationProperties.Name="Sakura 日记访问密码"/>
+      <TextBlock Text="首次必须设置；以后留空保留原密码。这不是 Sakura 账号密码或访问密钥。" FontSize="11" Foreground="#929A90" TextWrapping="Wrap" Margin="0,5,0,13"/>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions><Button x:Name="EnableSakuraButton" Content="保存并开启入口"/><Button x:Name="DisableSakuraButton" Content="关闭入口" Grid.Column="2"/></Grid>
+      <StackPanel Orientation="Horizontal" Margin="0,9,0,0"><Button x:Name="CopySakuraButton" Content="复制地址" Background="Transparent" Padding="2,7" FontSize="11"/><Button x:Name="OpenSakuraButton" Content="浏览器打开" Background="Transparent" Padding="12,7" FontSize="11"/><Button x:Name="SakuraHelpButton" Content="配置指引" Background="Transparent" Padding="2,7" FontSize="11"/></StackPanel>
+      <Button x:Name="SakuraWebsiteButton" Content="打开 Sakura 官网 · 注册 / 安装启动器" Background="Transparent" FontSize="11" Padding="0,8" HorizontalAlignment="Left"/>
+      <TextBlock Text="应用设置会重启日记服务，请先保存草稿。隧道由 Sakura 官方启动器管理；关闭入口会立即阻止通过此入口访问日记。" FontSize="11" Foreground="#929A90" TextWrapping="Wrap" Margin="0,5,0,0"/>
      </StackPanel></Border>
     </StackPanel>
     <StackPanel Grid.Column="2">

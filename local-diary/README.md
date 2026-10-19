@@ -11,6 +11,7 @@
 - `store.mjs`：以短日期目录保存 JSON、原图和历史。独立的持久层不依赖浏览器。
 - `server.mjs`：仅监听 IPv4 loopback，提供本地 API、界面和受限的归档文件读取。
 - `access.mjs`：校验本机连接或明确配置的 Tailscale Serve HTTPS 代理；所有资料读取及写入均受身份限制。
+- `sakura-auth.mjs`：独立 Sakura Frp 入口的密码摘要、登录限速和服务端会话；配置与使用见 [Sakura Frp 配置步骤](../docs/SAKURA-FRP.md)。
 - `public/`：无需构建、无外部资源的浏览器界面。
 - `THIRD_PARTY_NOTICES.md`：Memos 参考来源、commit、MIT 许可。
 - `structure.mjs`：识别日期后缀与仅供分层的空标题页。只有名称符合月份/旬、源哈希一致、无正文/图片/附件/未知对象、无用户新增块时才从应用清理。原文件不受影响。
@@ -25,7 +26,9 @@
 
 服务校验 Host、来源和写入 token，无跨源读取授权；目录访问限定在资料根目录，静态文件也检查真实路径。文本块移除活动内容；自定义 HTML 和原始 HTML 使用 sandbox iframe 与 CSP 隔离，禁止脚本、表单提交和外部资源。HTML 区域适用于本地排版，不是可以联网运行 JavaScript 的插件系统。
 
-远程访问使用 Tailscale Serve，底层仍只绑定回环地址。`local-state/remote-access.json` 配置准确的 HTTPS origin 与允许的 Tailscale 登录身份；CLI 启动时加载，默认关闭，配置错误时拒绝启动。仅信任来自本机 Serve 的转发头：匹配 `X-Forwarded-Host`、`X-Forwarded-Proto`、`Tailscale-User-Login`，拒绝 Funnel。依赖 Serve 清理并重新注入身份头；本机进程仍属于可信边界，不支持通用公网代理或监听所有网卡。切勿将底层端口直接暴露到网络。
+Tailscale Serve 入口只绑定回环地址。`local-state/remote-access.json` 配置准确的 HTTPS origin 与允许的 Tailscale 登录身份；CLI 启动时加载，默认关闭，配置错误时拒绝启动。仅信任来自本机 Serve 的转发头：匹配 `X-Forwarded-Host`、`X-Forwarded-Proto`、`Tailscale-User-Login`，拒绝 Funnel。依赖 Serve 清理并重新注入身份头；本机进程仍属于可信边界。切勿将免登录的本地日记端口直接暴露到网络。
+
+Sakura Frp 使用另一个回环监听端口（默认 `8767`），无论请求是否来自本机都要求会话认证。`local-state/sakura-access.json` 保存 HTTPS origin、本地入口端口与 scrypt 密码摘要。它与本地/Tailscale 共用同一个存储实例，可分别启停。官方启动器的自动 HTTPS 转发必须保留 Host 并设置 `X-Forwarded-Proto: https`；转发头不作为登录身份。控制台只显示本机入口是否就绪，真实隧道连通性需要手机外网验证。
 
 `GET /api/changes` 提供服务实例与提交序号组成的轻量版本标识，保存及历史恢复时更新。前台浏览器每 15 秒、聚焦或重连时检查；版本变化后才重读列表。当前日记无未保存修改时刷新内容，有草稿时提示冲突并保留草稿；读取新版期间发生输入也不会替换。服务重启后的标识变化会触发重新读取凭据。断网草稿仅留在页面内存，不承诺离线持久化。
 

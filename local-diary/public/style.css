@@ -1610,3 +1610,4 @@ dialog::backdrop {
 .disconnected .online-dot { background:#b77942; }
 .disconnected { color:#b77942; }
 .independent-entry { color:var(--muted); font-size:12px; padding:8px; }
+#reauth-password { display:block; width:100%; margin-top:10px; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:inherit; font:inherit; }

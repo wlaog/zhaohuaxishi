@@ -38,15 +38,20 @@ function ConvertTo-DiaryArgument {
 }
 
 function Invoke-DiaryCommand {
-    param([string]$File,[string[]]$Arguments=@(),[int]$TimeoutSeconds=15,[string]$WorkingDirectory)
+    param([string]$File,[string[]]$Arguments=@(),[int]$TimeoutSeconds=15,[string]$WorkingDirectory,[string]$InputText)
     $info=[Diagnostics.ProcessStartInfo]::new()
     $info.FileName=$File;$info.Arguments=($Arguments | ForEach-Object {ConvertTo-DiaryArgument $_}) -join ' '
     $info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    if($PSBoundParameters.ContainsKey('InputText')){$info.RedirectStandardInput=$true}
     $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
     if($WorkingDirectory){$info.WorkingDirectory=$WorkingDirectory}
     $process=[Diagnostics.Process]::new();$process.StartInfo=$info
     try{
         $null=$process.Start();$output=$process.StandardOutput.ReadToEndAsync();$errorOutput=$process.StandardError.ReadToEndAsync()
+        if($info.RedirectStandardInput){
+            $inputBytes=[Text.Encoding]::UTF8.GetBytes($InputText)
+            try{$process.StandardInput.BaseStream.Write($inputBytes,0,$inputBytes.Length)}finally{[Array]::Clear($inputBytes,0,$inputBytes.Length);$process.StandardInput.Close()}
+        }
         if(!$process.WaitForExit($TimeoutSeconds*1000)){$process.Kill();throw 'Command timed out. Check the connection and try again.'}
         return [pscustomobject]@{exitCode=$process.ExitCode;output=$output.GetAwaiter().GetResult();error=$errorOutput.GetAwaiter().GetResult()}
     }finally{$process.Dispose()}
@@ -322,6 +327,8 @@ function Update-DiarySettings {
     param([string]$ProjectRoot,[int]$Port,[int]$HttpsPort)
     if($Port -lt 1 -or $Port -gt 65535 -or $HttpsPort -lt 1 -or $HttpsPort -gt 65535){throw 'Port must be between 1 and 65535.'}
     $old=Get-DiarySettings $ProjectRoot;$remote=Get-DiaryRemoteConfig $ProjectRoot
+    $sakura=Get-DiarySakuraConfig $ProjectRoot
+    if($sakura.enabled -and $Port -eq $sakura.port){throw '本地日记端口不能与 Sakura 独立入口端口相同。'}
     $managed=Get-DiaryManagedProcess $ProjectRoot;$running=Get-DiaryHealth $old.port
     if($running -and !$managed){throw 'Stop the command-line diary before changing ports.'}
     if($Port -ne $old.port){Test-DiaryPort $Port}
@@ -356,16 +363,21 @@ function Get-DiaryControllerStatus {
     $managed=$false
     try{$managed=$null -ne (Get-DiaryManagedProcess $ProjectRoot)}catch{}
     $dependencies=$runtime.ready -and (Test-Path -LiteralPath (Join-Path $ProjectRoot 'node_modules/cheerio')) -and (Test-Path -LiteralPath (Join-Path $ProjectRoot 'node_modules/sharp')) -and (Test-Path -LiteralPath (Join-Path $ProjectRoot 'node_modules/fast-xml-parser'))
-    $tailscale=Get-DiaryTailscale;$remote=Get-DiaryRemoteConfig $ProjectRoot
+    try{$tailscale=Get-DiaryTailscale}catch{$tailscale=[pscustomobject]@{installed=$true;running=$false}}
+    $remote=Get-DiaryRemoteConfig $ProjectRoot
+    $sakura=Get-DiarySakuraConfig $ProjectRoot
+    $sakuraReady=$running -and $sakura.enabled -and $health.sakuraOrigin -eq $sakura.origin -and $health.sakuraPort -eq $sakura.port
     $remoteUrl=$null;$remoteRunning=$false
     if($tailscale.running){
         $suffix=if($settings.httpsPort -eq 443){''}else{':'+$settings.httpsPort}
         $remoteUrl='https://'+$tailscale.dns+$suffix
         if($remote.enabled -and $running -and $health.remoteOrigin -eq $remote.origin){
-            $serve=Get-DiaryServe $tailscale
-            $route=$serve.Web.PSObject.Properties | Where-Object Name -EQ (([Uri]$remote.origin).Host+':'+([Uri]$remote.origin).Port)
-            $handlers=@($route.Value.Handlers.PSObject.Properties)
-            $remoteRunning=$handlers.Count -eq 1 -and $handlers[0].Name -eq '/' -and $handlers[0].Value.Proxy -eq "http://127.0.0.1:$($settings.port)"
+            try{
+                $serve=Get-DiaryServe $tailscale
+                $route=$serve.Web.PSObject.Properties | Where-Object Name -EQ (([Uri]$remote.origin).Host+':'+([Uri]$remote.origin).Port)
+                $handlers=@($route.Value.Handlers.PSObject.Properties)
+                $remoteRunning=$handlers.Count -eq 1 -and $handlers[0].Name -eq '/' -and $handlers[0].Value.Proxy -eq "http://127.0.0.1:$($settings.port)"
+            }catch{$remoteRunning=$false}
         }
     }
     $active=$null;$activePath=Join-Path $ProjectRoot 'local-state/controller/active.json'
@@ -374,7 +386,84 @@ function Get-DiaryControllerStatus {
         $owner=Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$record.pid)" -ErrorAction SilentlyContinue
         if($owner -and $owner.CommandLine -like '*Diary-Control.Worker.ps1*' -and $owner.CommandLine.Contains($record.operationDirectory)){$active=$record}
     }
-    return [pscustomobject]@{settings=$settings;runtimeVersion=$runtime.version;environmentReady=[bool]$dependencies;running=[bool]$running;managed=$managed;localUrl="http://127.0.0.1:$($settings.port)";phoneUrl=$remoteUrl;phoneEnabled=[bool]$remote.enabled;phoneRunning=[bool]$remoteRunning;tailscaleInstalled=[bool]$tailscale.installed;tailscaleRunning=[bool]$tailscale.running;busy=$active}
+    return [pscustomobject]@{settings=$settings;runtimeVersion=$runtime.version;environmentReady=[bool]$dependencies;running=[bool]$running;managed=$managed;localUrl="http://127.0.0.1:$($settings.port)";phoneUrl=$remoteUrl;phoneEnabled=[bool]$remote.enabled;phoneRunning=[bool]$remoteRunning;tailscaleInstalled=[bool]$tailscale.installed;tailscaleRunning=[bool]$tailscale.running;sakuraEnabled=[bool]$sakura.enabled;sakuraReady=[bool]$sakuraReady;sakuraOrigin=$sakura.origin;sakuraPort=$(if($sakura.port){$sakura.port}else{8767});busy=$active}
+}
+
+function Get-DiarySakuraConfig {
+    param([string]$ProjectRoot)
+    $file=Join-Path $ProjectRoot 'local-state/sakura-access.json'
+    if(Test-Path -LiteralPath $file){return (Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json)}
+    return [pscustomobject]@{enabled=$false;port=8767;origin=''}
+}
+
+function Protect-DiaryPassword {
+    param([Security.SecureString]$Password)
+    Add-Type -AssemblyName System.Security
+    $pointer=[IntPtr]::Zero;$bytes=$null
+    try{
+        $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
+        $bytes=[Text.Encoding]::UTF8.GetBytes([Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer))
+        return [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))
+    }finally{if($bytes){[Array]::Clear($bytes,0,$bytes.Length)};if($pointer -ne [IntPtr]::Zero){[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)}}
+}
+
+function Unprotect-DiaryPassword {
+    param([string]$ProtectedPassword)
+    Add-Type -AssemblyName System.Security
+    $bytes=$null;$characters=$null;$secure=[Security.SecureString]::new()
+    try{
+        $bytes=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($ProtectedPassword),$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+        $characters=[Text.Encoding]::UTF8.GetChars($bytes)
+        foreach($character in $characters){$secure.AppendChar($character)}
+        $secure.MakeReadOnly();return $secure
+    }catch{$secure.Dispose();throw '无法读取访问密码，请在当前 Windows 账号下重新输入。'}
+    finally{if($bytes){[Array]::Clear($bytes,0,$bytes.Length)};if($characters){[Array]::Clear($characters,0,$characters.Length)}}
+}
+
+function Set-DiarySakuraAccess {
+    param([string]$ProjectRoot,[string]$Origin,[int]$Port,[Security.SecureString]$Password,[switch]$Disable)
+    $settings=Get-DiarySettings $ProjectRoot;$old=Get-DiarySakuraConfig $ProjectRoot
+    $health=Get-DiaryHealth $settings.port;$managed=Get-DiaryManagedProcess $ProjectRoot
+    if($health -and !$managed){throw '请先停止命令行启动的日记，再使用控制台应用 Sakura 设置。'}
+    if($health -and ($health.application -ne 'life-local-diary' -or $health.root -ne [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'exports/LIFE')))){throw 'Local port belongs to another application.'}
+    if($Disable){$new=$old;$new.enabled=$false}
+    else{
+        if($Port -eq $settings.port){throw 'Sakura 独立入口不能使用本地日记端口。请选择另一个端口，例如 8767。'}
+        if($Port -lt 1 -or $Port -gt 65535){throw 'Port must be an integer between 1 and 65535.'}
+        if(!$old.enabled -or !$health -or $health.sakuraPort -ne $Port){Test-DiaryPort $Port}
+        $runtime=Get-DiaryRuntime $ProjectRoot
+        if(!$runtime.ready){throw 'Node.js 22 or newer is missing. Click the first-use installation button.'}
+        $plain='';$pointer=[IntPtr]::Zero
+        try{
+            if($Password){$pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password);$plain=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)}
+            $inputText=@{origin=$Origin;port=$Port;password=$plain;previous=$old} | ConvertTo-Json -Depth 5 -Compress
+            $result=Invoke-DiaryCommand $runtime.node @((Join-Path $ProjectRoot 'local-diary/sakura-auth.mjs')) -InputText $inputText -WorkingDirectory $ProjectRoot
+            if($result.exitCode -ne 0){throw $result.error}
+            $new=$result.output | ConvertFrom-Json
+        }finally{if($pointer -ne [IntPtr]::Zero){[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)};$plain=$null;$inputText=$null}
+    }
+    $file=Join-Path $ProjectRoot 'local-state/sakura-access.json'
+    # Keep an independent copy because the disable operation must also roll back.
+    $previous=Get-DiarySakuraConfig $ProjectRoot
+    try{
+        if($managed){Stop-DiaryService $ProjectRoot}
+        Write-DiaryJson $file $new
+        if(!$Disable -or $managed){$null=Start-DiaryService $ProjectRoot}
+        if(!$Disable){$check=Get-DiaryHealth $settings.port;if($check.sakuraOrigin -ne $new.origin -or $check.sakuraPort -ne $Port){throw 'Sakura 入口未成功加载，请检查服务日志。'}}
+    }catch{
+        $failure=$_
+        Write-DiaryJson $file $previous
+        try{Stop-DiaryService $ProjectRoot;if($managed){$null=Start-DiaryService $ProjectRoot}}catch{Write-Warning '配置已恢复，请检查服务状态。'}
+        throw $failure
+    }
+}
+
+function Open-DiarySakuraUrl {
+    param([string]$ProjectRoot)
+    $config=Get-DiarySakuraConfig $ProjectRoot
+    $uri=[Uri]$config.origin
+    if(!$config.enabled -or $uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.AbsolutePath -ne '/' -or $uri.Query -or $uri.Fragment){throw '请先配置并开启 Sakura 入口。'}
+    Start-Process $uri.AbsoluteUri
 }
 
 function Open-DiaryUrl {

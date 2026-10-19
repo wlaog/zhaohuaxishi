@@ -19,7 +19,8 @@ $window.Icon=[Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new([IO.Path]::G
 $window.FindName('BrandIcon').Source=[Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../local-diary/controller/icon.png'))))
 if($ProjectRoot -ne [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))){$window.Title+=' · 测试'}
 $controls=@{}
-foreach($name in @('ServiceStatus','Notice','NoticeText','Progress','RuntimeStatus','InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','CopyPhoneButton','OpenPhoneButton','TailscaleHelpButton','ApplyButton','LocalPort','HttpsPort','LocalAddress','PhoneAddress','PhoneStatus','LogText','LogExpander')){$controls[$name]=$window.FindName($name)}
+foreach($name in @('ServiceStatus','Notice','NoticeText','Progress','RuntimeStatus','InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','CopyPhoneButton','OpenPhoneButton','TailscaleHelpButton','ApplyButton','LocalPort','HttpsPort','LocalAddress','PhoneAddress','PhoneStatus','LogText','LogExpander','SakuraStatus','SakuraOrigin','SakuraPort','SakuraPassword','EnableSakuraButton','DisableSakuraButton','CopySakuraButton','OpenSakuraButton','SakuraHelpButton','SakuraWebsiteButton')){$controls[$name]=$window.FindName($name)}
+$script:sakuraDirty=$false
 $script:status=$null;$script:worker=$null;$script:pending=$null;$script:dirty=$false;$script:updating=$false;$script:lastRefresh=[DateTime]::MinValue;$script:logDirectory=$null;$script:externalOperation=$null;$script:statusCleanup=@()
 
 function Show-ControllerNotice([string]$Text){
@@ -35,13 +36,15 @@ function Get-FriendlyError([string]$Text){
 }
 function Set-ControllerBusy([bool]$Busy){
  $controls.Progress.Visibility=if($Busy){'Visible'}else{'Collapsed'}
- foreach($name in @('InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','ApplyButton','LocalPort','HttpsPort')){$controls[$name].IsEnabled=!$Busy}
+ foreach($name in @('InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','ApplyButton','LocalPort','HttpsPort','EnableSakuraButton','DisableSakuraButton','SakuraOrigin','SakuraPort','SakuraPassword')){$controls[$name].IsEnabled=!$Busy}
  if(!$Busy -and $script:status){
   $controls.InstallButton.IsEnabled=!$script:status.running
   $controls.StopButton.IsEnabled=$script:status.managed
   $controls.StartButton.IsEnabled=$script:status.environmentReady
   $controls.EnablePhoneButton.IsEnabled=$script:status.environmentReady -and $script:status.tailscaleRunning
   $controls.DisablePhoneButton.IsEnabled=$script:status.phoneEnabled
+  $controls.EnableSakuraButton.IsEnabled=$script:status.environmentReady
+  $controls.DisableSakuraButton.IsEnabled=$script:status.sakuraEnabled
  }
 }
 function Show-ControllerStatus($Value){
@@ -54,6 +57,9 @@ function Show-ControllerStatus($Value){
  $controls.PhoneAddress.Text=if($Value.phoneUrl){$Value.phoneUrl}else{'连接 Tailscale 后自动生成地址'}
  $controls.PhoneStatus.Text=if($Value.phoneRunning){'已开启 · 手机可通过私人网络访问'}elseif(!$Value.tailscaleInstalled){'尚未安装 Tailscale，请先查看连接指引'}elseif(!$Value.tailscaleRunning){'请先在电脑上连接 Tailscale'}else{'Tailscale 已连接，点击下方开启访问'}
  $controls.CopyPhoneButton.IsEnabled=[bool]$Value.phoneUrl;$controls.OpenPhoneButton.IsEnabled=$Value.phoneRunning
+ $controls.SakuraStatus.Text=if($Value.sakuraReady){'本机入口已就绪；请在 Sakura 启动器启动隧道，再用手机验证外网访问。'}elseif($Value.sakuraEnabled){'入口已配置，日记服务尚未就绪。点击“启动并打开日记”后重试。'}elseif($Value.sakuraOrigin){'入口已关闭，配置已保留。'}else{'尚未配置。先查看配置指引，完成账号和隧道设置。'}
+ $controls.CopySakuraButton.IsEnabled=[bool]$Value.sakuraOrigin;$controls.OpenSakuraButton.IsEnabled=$Value.sakuraReady
+ if(!$script:sakuraDirty){$script:updating=$true;$controls.SakuraOrigin.Text=[string]$Value.sakuraOrigin;$controls.SakuraPort.Text=[string]$Value.sakuraPort;$script:updating=$false}
  if(!$script:dirty){$script:updating=$true;$controls.LocalPort.Text=[string]$Value.settings.port;$controls.HttpsPort.Text=[string]$Value.settings.httpsPort;$script:updating=$false}
  Set-ControllerBusy ([bool]$Value.busy)
  if($Value.busy){$script:externalOperation=$Value.busy.operationDirectory;$script:logDirectory=$Value.busy.operationDirectory;$controls.ServiceStatus.Text='操作仍在后台进行';Show-ControllerNotice '上次操作仍在继续。可以留在此处查看进度，也可以关闭控制台。'}
@@ -95,6 +101,23 @@ $controls.StartButton.Add_Click({Queue-ControllerAction 'Start' $null})
 $controls.StopButton.Add_Click({Queue-ControllerAction 'Stop' $null})
 $controls.EnablePhoneButton.Add_Click({Queue-ControllerAction 'EnableRemote' $null})
 $controls.DisablePhoneButton.Add_Click({Queue-ControllerAction 'DisableRemote' $null})
+$controls.EnableSakuraButton.Add_Click({
+ $portValue=0
+ if(![int]::TryParse($controls.SakuraPort.Text,[ref]$portValue) -or $portValue -lt 1 -or $portValue -gt 65535){Show-ControllerNotice 'Sakura 本地端口需要是 1–65535 的整数。';return}
+ $password=$controls.SakuraPassword.SecurePassword
+ try{$protected=if($password.Length){Protect-DiaryPassword $password}else{''}}finally{$password.Dispose()}
+ Queue-ControllerAction 'EnableSakura' @{origin=$controls.SakuraOrigin.Text.Trim();port=$portValue;protectedPassword=$protected}
+})
+$controls.DisableSakuraButton.Add_Click({Queue-ControllerAction 'DisableSakura' $null})
+$controls.SakuraOrigin.Add_TextChanged({if(!$script:updating){$script:sakuraDirty=$true}})
+$controls.SakuraPort.Add_TextChanged({if(!$script:updating){$script:sakuraDirty=$true}})
+$controls.CopySakuraButton.Add_Click({if($script:status.sakuraOrigin){[Windows.Clipboard]::SetText($script:status.sakuraOrigin);Show-ControllerNotice 'Sakura 地址已复制。手机直接用浏览器打开，输入日记访问密码。'}})
+$controls.OpenSakuraButton.Add_Click({try{Open-DiarySakuraUrl $ProjectRoot}catch{Show-ControllerNotice $_.Exception.Message}})
+$controls.SakuraWebsiteButton.Add_Click({Start-Process 'https://www.natfrp.com/'})
+$controls.SakuraHelpButton.Add_Click({
+ $portText=$controls.SakuraPort.Text
+ [Windows.MessageBox]::Show("首次设置：`n`n1. 点击下方官网链接，注册 Sakura Frp 账号，按官方要求完成账号准备，安装 Windows 官方启动器。`n`n2. 创建允许 Web 用途的 TCP 隧道。初次可选符合用途要求的非内地节点。本地 IP 填 127.0.0.1，本地端口填 $portText，不要填日记端口。远程端口使用平台分配值。`n`n3. 开启隧道的「自动 HTTPS」，保持 HTTP 反代模式和默认转发头，不要重写 Host。申请免费的 nyat.app 子域并绑定此隧道，等证书就绪。`n`n4. 把完整地址 https://子域名:远程端口 填到此处，另设至少 12 字符的日记密码，点击「保存并开启入口」。`n`n5. 在 Sakura 启动器启动隧道，手机关闭 Wi-Fi 后用移动网络测试。首次进入会显示日记登录页。`n`n启动器里的访问密钥只填到官方启动器，不要发给别人。节点用途限制以官方面板为准。内地 HTTP(S) 隧道需备案域名。`n`n控制台只检测本机入口，无法据此确认外网隧道在线。详细步骤见项目 docs/SAKURA-FRP.md。",'Sakura Frp 配置指引') | Out-Null
+})
 $controls.ApplyButton.Add_Click({
  $localPortValue=0;$httpsPortValue=0
  if(![int]::TryParse($controls.LocalPort.Text,[ref]$localPortValue) -or ![int]::TryParse($controls.HttpsPort.Text,[ref]$httpsPortValue) -or $localPortValue -lt 1 -or $localPortValue -gt 65535 -or $httpsPortValue -lt 1 -or $httpsPortValue -gt 65535){Show-ControllerNotice '请输入 1–65535 之间的整数端口。';return}
@@ -121,8 +144,9 @@ $timer.Add_Tick({
     $result=Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
     if($result.ok){
      if($finished.action -eq 'Apply'){$script:dirty=$false}
+     if($finished.action -eq 'EnableSakura'){$script:sakuraDirty=$false;$controls.SakuraPassword.Clear()}
      if($result.status){Show-ControllerStatus $result.status}
-     if($finished.action -ne 'Status'){Show-ControllerNotice $(switch($finished.action){'Install'{'环境已准备好，点击“启动并打开日记”即可。'}'Start'{'日记已就绪。关闭控制台也会继续运行。'}'Stop'{'服务已停止，所有日记内容保留。'}'EnableRemote'{'手机访问已开启。复制地址到手机浏览器即可。'}'DisableRemote'{'手机访问已关闭，本地记录继续保留。'}'Apply'{'设置已应用，访问地址已更新。'}})}
+     if($finished.action -ne 'Status'){Show-ControllerNotice $(switch($finished.action){'Install'{'环境已准备好，点击“启动并打开日记”即可。'}'Start'{'日记已就绪。关闭控制台也会继续运行。'}'Stop'{'服务已停止，所有日记内容保留。'}'EnableRemote'{'手机访问已开启。复制地址到手机浏览器即可。'}'DisableRemote'{'手机访问已关闭，本地记录继续保留。'}'Apply'{'设置已应用，访问地址已更新。'}'EnableSakura'{'Sakura 本机入口已开启，请启动官方启动器中的隧道，用手机验证外网访问。'}'DisableSakura'{'Sakura 日记入口已关闭，配置已保留。'}})}
     }else{Show-ControllerNotice ('操作未完成：'+(Get-FriendlyError $result.error));$controls.LogExpander.IsExpanded=$true;Set-ControllerBusy $false}
    }else{Show-ControllerNotice '后台操作意外结束，请展开运行日志查看原因。';$script:logDirectory=$finished.directory;$controls.LogExpander.IsExpanded=$true;Set-ControllerBusy $false}
    $finished.process.Dispose();$script:lastRefresh=[DateTime]::UtcNow
