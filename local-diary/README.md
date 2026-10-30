@@ -24,6 +24,8 @@
 
 ## 数据安全边界
 
+JSON、HTML、CSS、JavaScript 等文本响应会按浏览器的 `Accept-Encoding` 协商 Brotli 或 gzip 压缩，较小响应与原图等二进制内容保留原样。压缩异步执行；归档 HTML 仍先完成脚本清理并使用原有 CSP，私人数据保持 `Cache-Control: no-store`，没有新增浏览器持久缓存。`tests/compression.test.mjs` 验证解压后的内容、编码协商、保存后刷新、HEAD 与原图字节。
+
 服务校验 Host、来源和写入 token，无跨源读取授权；目录访问限定在资料根目录，静态文件也检查真实路径。文本块移除活动内容；自定义 HTML 和原始 HTML 使用 sandbox iframe 与 CSP 隔离，禁止脚本、表单提交和外部资源。HTML 区域适用于本地排版，不是可以联网运行 JavaScript 的插件系统。
 
 Tailscale Serve 入口只绑定回环地址。`local-state/remote-access.json` 配置准确的 HTTPS origin 与允许的 Tailscale 登录身份；CLI 启动时加载，默认关闭，配置错误时拒绝启动。仅信任来自本机 Serve 的转发头：匹配 `X-Forwarded-Host`、`X-Forwarded-Proto`、`Tailscale-User-Login`，拒绝 Funnel。依赖 Serve 清理并重新注入身份头；本机进程仍属于可信边界。切勿将免登录的本地日记端口直接暴露到网络。

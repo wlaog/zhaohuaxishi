@@ -9,10 +9,15 @@ import { remoteAccess, requestAccess } from './access.mjs';
 import { loadSettings } from './settings.mjs';
 import { DayStore } from './days.mjs';
 import { sakuraAccess, createSakuraAuth } from './sakura-auth.mjs';
+import { sendBuffer, sendStream } from './compression.mjs';
 
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.xml': 'application/xml; charset=utf-8' };
-const json = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); };
+const json = (req, res, status, data) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  return sendBuffer(req, res, Buffer.from(JSON.stringify(data)), { status });
+};
 async function body(req, limit = 4_500_000) {
   const parts = []; let size = 0;
   for await (const part of req) { size += part.length; if (size > limit) throw new DiaryError(413, '请求内容过大'); parts.push(part); }
@@ -46,12 +51,12 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         const publicFiles = { '/login':'login.html', '/auth/login.js':'login.js', '/auth/style.css':'login.css' };
         if (req.method === 'GET' && Object.hasOwn(publicFiles, url.pathname)) {
           res.setHeader('Content-Type', mime[path.extname(publicFiles[url.pathname])]);
-          return res.end(await fs.readFile(path.join(appRoot, 'public', publicFiles[url.pathname])));
+          return await sendBuffer(req, res, await fs.readFile(path.join(appRoot, 'public', publicFiles[url.pathname])));
         }
         if (url.pathname === '/auth/login' && req.method === 'POST') {
           if (req.headers['content-type'] !== 'application/json') throw new DiaryError(415, '需要 JSON 登录请求');
           await auth.login(JSON.parse(await body(req, 2048)).password, res);
-          return json(res, 200, { ok:true });
+          return await json(req, res, 200, { ok:true });
         }
         if (!auth.authenticated(req)) {
           if (req.method === 'GET' && url.pathname === '/') { res.writeHead(302, { Location:'/login' }); return res.end(); }
@@ -59,29 +64,29 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         }
         if (url.pathname === '/auth/logout' && req.method === 'POST') {
           auth.logout(req, res);
-          return json(res, 200, { ok:true });
+          return await json(req, res, 200, { ok:true });
         }
       }
       if (url.pathname.startsWith('/api/')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DiaryError(403, '来源无效');
         if (req.method !== 'GET' && req.headers['x-diary-token'] !== token) throw new DiaryError(403, '保存凭据无效，请刷新页面');
-        if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null, sakuraOrigin:sakuraConfig?.origin ?? null, sakuraPort:sakuraServer?.address()?.port ?? null });
-        if (req.method === 'GET' && url.pathname === '/api/changes') return json(res, 200, { changeVersion: changeVersion() });
-        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return json(res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion(), remoteSession:isSakura });
+        if (req.method === 'GET' && url.pathname === '/api/health') return await json(req, res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null, sakuraOrigin:sakuraConfig?.origin ?? null, sakuraPort:sakuraServer?.address()?.port ?? null });
+        if (req.method === 'GET' && url.pathname === '/api/changes') return await json(req, res, 200, { changeVersion: changeVersion() });
+        if (req.method === 'GET' && url.pathname === '/api/bootstrap') return await json(req, res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion(), remoteSession:isSakura });
         const dayMatch=url.pathname.match(/^\/api\/days\/([^/]+)$/);
         if(dayMatch){
-          if(req.method==='GET')return json(res,200,await days.get(dayMatch[1]));
-          if(req.method==='PUT'){const saved=await days.save(dayMatch[1],JSON.parse(await body(req,5000)));sequence++;return json(res,200,saved);}
+          if(req.method==='GET')return await json(req, res,200,await days.get(dayMatch[1]));
+          if(req.method==='PUT'){const saved=await days.save(dayMatch[1],JSON.parse(await body(req,5000)));sequence++;return await json(req, res,200,saved);}
           throw new DiaryError(405,'请求方法不支持');
         }
         const match = url.pathname.match(/^\/api\/entries\/([^/]+)(?:\/(images|history|restore))?$/);
         if (!match || !validId(match[1])) throw new DiaryError(404, '接口不存在');
         const [, id, action] = match;
-        if (req.method === 'GET' && !action) return json(res, 200, store.get(id));
-        if (req.method === 'GET' && action === 'history') return json(res, 200, await store.history(id));
-        if (req.method === 'PUT' && !action) { const saved = await store.save(id, JSON.parse(await body(req))); sequence++; return json(res, 200, saved); }
-        if (req.method === 'POST' && action === 'images') return json(res, 200, await store.upload(id, await body(req, 25 * 1024 * 1024)));
-        if (req.method === 'POST' && action === 'restore') { const data = JSON.parse(await body(req)); const saved = await store.restore(id, data.restoreRevision, data.revision); sequence++; return json(res, 200, saved); }
+        if (req.method === 'GET' && !action) return await json(req, res, 200, store.get(id));
+        if (req.method === 'GET' && action === 'history') return await json(req, res, 200, await store.history(id));
+        if (req.method === 'PUT' && !action) { const saved = await store.save(id, JSON.parse(await body(req))); sequence++; return await json(req, res, 200, saved); }
+        if (req.method === 'POST' && action === 'images') return await json(req, res, 200, await store.upload(id, await body(req, 25 * 1024 * 1024)));
+        if (req.method === 'POST' && action === 'restore') { const data = JSON.parse(await body(req)); const saved = await store.restore(id, data.restoreRevision, data.revision); sequence++; return await json(req, res, 200, saved); }
         throw new DiaryError(405, '请求方法不支持');
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new DiaryError(405, '请求方法不支持');
@@ -107,14 +112,13 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         const view = original.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
         const bytes = Buffer.from(view);
         res.setHeader('Content-Length', bytes.length);
-        return res.end(req.method === 'HEAD' ? undefined : bytes);
+        return await sendBuffer(req, res, bytes);
       }
-      if (req.method === 'HEAD') return res.end();
-      createReadStream(real).on('error', () => res.destroy()).pipe(res);
+      return await sendStream(req, res, createReadStream(real), { type, size:stat.size });
     } catch (error) {
       if (res.headersSent) return res.destroy();
       const status = error.status ?? (error.code === 'ENOENT' ? 404 : error instanceof SyntaxError || error instanceof URIError ? 400 : 500);
-      json(res, status, { error: status === 500 ? '本地保存失败，请检查磁盘空间、权限及资料文件。草稿仍保留在当前窗口。' : error.message });
+      await json(req, res, status, { error: status === 500 ? '本地保存失败，请检查磁盘空间、权限及资料文件。草稿仍保留在当前窗口。' : error.message });
     }
   };
   const server = http.createServer(handler(false));

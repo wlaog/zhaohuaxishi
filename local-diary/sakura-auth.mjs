@@ -11,32 +11,43 @@ const lifetime = 30 * 24 * 60 * 60 * 1000;
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const cookie = (value, age) => `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${age}`;
 
+function httpsOrigin(value) {
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash
+    || !url.hostname.includes('.') || url.hostname.endsWith('.') || url.hostname.includes(':')) {
+    throw Error('Sakura 访问地址必须是完整 HTTPS origin，不能包含路径或登录信息');
+  }
+  return url;
+}
+
 export function sakuraAccess(value) {
   if (!value || value.enabled === false) return null;
-  const url = new URL(value.origin);
-  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash
-    || !url.hostname.includes('.') || url.hostname.endsWith('.') || url.hostname.includes(':')
-    || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535
+  const url = httpsOrigin(value.origin);
+  const extra = value.additionalOrigins ?? [];
+  if (!Array.isArray(extra) || extra.length > 4) throw Error('Sakura 备用地址需要是最多四个 HTTPS 地址的列表');
+  const additionalOrigins = [...new Set(extra.map(origin => httpsOrigin(origin).origin))].filter(origin => origin !== url.origin);
+  if (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535
     || value.password?.algorithm !== 'scrypt-v1' || !/^[a-f0-9]{32}$/.test(value.password.salt)
     || !/^[a-f0-9]{128}$/.test(value.password.hash)) {
     throw Error('Sakura 配置无效：需要完整 HTTPS 地址、独立本地端口和访问密码');
   }
-  return { enabled:true, origin:url.origin, host:url.host, port:value.port, password:value.password };
+  return { enabled:true, origin:url.origin, host:url.host, port:value.port, password:value.password, additionalOrigins };
 }
 
-export async function makeSakuraConfig({ origin, port, password }, previous = null) {
+export async function makeSakuraConfig({ origin, port, password, additionalOrigins }, previous = null) {
   let record = previous?.password;
   if (password !== undefined && password !== '') {
     if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw Error('访问密码需要 12–256 个字符');
     const salt = crypto.randomBytes(16).toString('hex');
     record = { algorithm:'scrypt-v1', salt, hash:(await scrypt(password, salt, 64, kdfOptions)).toString('hex') };
   }
-  return sakuraAccess({ enabled:true, origin, port, password:record });
+  return sakuraAccess({ enabled:true, origin, port, password:record, additionalOrigins:additionalOrigins ?? previous?.additionalOrigins ?? [] });
 }
 
 // This listener never inherits the trusted loopback bypass from the desktop listener.
 // Forwarded headers describe transport, not identity. Authentication is always required.
 export function createSakuraAuth(config, now = Date.now) {
+  const origins = new Map([config.origin, ...(config.additionalOrigins ?? [])].map(origin => [new URL(origin).host, origin]));
   const sessions = new Map();
   let failures = [], verifying = false;
   function sessionKey(req) {
@@ -51,10 +62,11 @@ export function createSakuraAuth(config, now = Date.now) {
   }
   return {
     connection(req) {
+      const origin = origins.get(req.headers.host);
       if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)
-        || req.headers.host !== config.host || req.headers['x-forwarded-proto'] !== 'https'
+        || !origin || req.headers['x-forwarded-proto'] !== 'https'
         || Object.keys(req.headers).some(key => key.startsWith('tailscale-'))) throw new DiaryError(403, 'Sakura 访问地址或 HTTPS 转发配置不正确');
-      return { origin:config.origin, remote:true, sakura:true };
+      return { origin, remote:true, sakura:true };
     },
     authenticated,
     async login(password, res) {

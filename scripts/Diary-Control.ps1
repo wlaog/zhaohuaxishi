@@ -21,6 +21,7 @@ if($ProjectRoot -ne [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))){
 $controls=@{}
 foreach($name in @('ServiceStatus','Notice','NoticeText','Progress','RuntimeStatus','InstallButton','StartButton','StopButton','EnablePhoneButton','DisablePhoneButton','CopyPhoneButton','OpenPhoneButton','TailscaleHelpButton','ApplyButton','LocalPort','HttpsPort','LocalAddress','PhoneAddress','PhoneStatus','LogText','LogExpander','SakuraStatus','SakuraOrigin','SakuraPort','SakuraPassword','EnableSakuraButton','DisableSakuraButton','CopySakuraButton','OpenSakuraButton','SakuraHelpButton','SakuraWebsiteButton')){$controls[$name]=$window.FindName($name)}
 $script:sakuraDirty=$false
+foreach($name in @('SakuraBackupPanel','SakuraBackupAddress','CopySakuraBackupButton')){$controls[$name]=$window.FindName($name)}
 $script:status=$null;$script:worker=$null;$script:pending=$null;$script:dirty=$false;$script:updating=$false;$script:lastRefresh=[DateTime]::MinValue;$script:logDirectory=$null;$script:externalOperation=$null;$script:statusCleanup=@()
 
 function Show-ControllerNotice([string]$Text){
@@ -59,6 +60,9 @@ function Show-ControllerStatus($Value){
  $controls.CopyPhoneButton.IsEnabled=[bool]$Value.phoneUrl;$controls.OpenPhoneButton.IsEnabled=$Value.phoneRunning
  $controls.SakuraStatus.Text=if($Value.sakuraReady){'本机入口已就绪；请在 Sakura 启动器启动隧道，再用手机验证外网访问。'}elseif($Value.sakuraEnabled){'入口已配置，日记服务尚未就绪。点击“启动并打开日记”后重试。'}elseif($Value.sakuraOrigin){'入口已关闭，配置已保留。'}else{'尚未配置。先查看配置指引，完成账号和隧道设置。'}
  $controls.CopySakuraButton.IsEnabled=[bool]$Value.sakuraOrigin;$controls.OpenSakuraButton.IsEnabled=$Value.sakuraReady
+ $backupOrigins=@($Value.sakuraBackupOrigins | Where-Object {$_})
+ $controls.SakuraBackupPanel.Visibility=if($backupOrigins.Count){'Visible'}else{'Collapsed'}
+ $controls.SakuraBackupAddress.Text=$backupOrigins -join "`n"
  if(!$script:sakuraDirty){$script:updating=$true;$controls.SakuraOrigin.Text=[string]$Value.sakuraOrigin;$controls.SakuraPort.Text=[string]$Value.sakuraPort;$script:updating=$false}
  if(!$script:dirty){$script:updating=$true;$controls.LocalPort.Text=[string]$Value.settings.port;$controls.HttpsPort.Text=[string]$Value.settings.httpsPort;$script:updating=$false}
  Set-ControllerBusy ([bool]$Value.busy)
@@ -112,6 +116,7 @@ $controls.DisableSakuraButton.Add_Click({Queue-ControllerAction 'DisableSakura' 
 $controls.SakuraOrigin.Add_TextChanged({if(!$script:updating){$script:sakuraDirty=$true}})
 $controls.SakuraPort.Add_TextChanged({if(!$script:updating){$script:sakuraDirty=$true}})
 $controls.CopySakuraButton.Add_Click({if($script:status.sakuraOrigin){[Windows.Clipboard]::SetText($script:status.sakuraOrigin);Show-ControllerNotice 'Sakura 地址已复制。手机直接用浏览器打开，输入日记访问密码。'}})
+$controls.CopySakuraBackupButton.Add_Click({if($controls.SakuraBackupAddress.Text){[Windows.Clipboard]::SetText($controls.SakuraBackupAddress.Text);Show-ControllerNotice '备用地址已复制。启动对应隧道后，在浏览器打开并使用原来的日记密码登录。'}})
 $controls.OpenSakuraButton.Add_Click({try{Open-DiarySakuraUrl $ProjectRoot}catch{Show-ControllerNotice $_.Exception.Message}})
 $controls.SakuraWebsiteButton.Add_Click({Start-Process 'https://www.natfrp.com/'})
 $controls.SakuraHelpButton.Add_Click({

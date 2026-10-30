@@ -386,7 +386,7 @@ function Get-DiaryControllerStatus {
         $owner=Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$record.pid)" -ErrorAction SilentlyContinue
         if($owner -and $owner.CommandLine -like '*Diary-Control.Worker.ps1*' -and $owner.CommandLine.Contains($record.operationDirectory)){$active=$record}
     }
-    return [pscustomobject]@{settings=$settings;runtimeVersion=$runtime.version;environmentReady=[bool]$dependencies;running=[bool]$running;managed=$managed;localUrl="http://127.0.0.1:$($settings.port)";phoneUrl=$remoteUrl;phoneEnabled=[bool]$remote.enabled;phoneRunning=[bool]$remoteRunning;tailscaleInstalled=[bool]$tailscale.installed;tailscaleRunning=[bool]$tailscale.running;sakuraEnabled=[bool]$sakura.enabled;sakuraReady=[bool]$sakuraReady;sakuraOrigin=$sakura.origin;sakuraPort=$(if($sakura.port){$sakura.port}else{8767});busy=$active}
+    return [pscustomobject]@{settings=$settings;runtimeVersion=$runtime.version;environmentReady=[bool]$dependencies;running=[bool]$running;managed=$managed;localUrl="http://127.0.0.1:$($settings.port)";phoneUrl=$remoteUrl;phoneEnabled=[bool]$remote.enabled;phoneRunning=[bool]$remoteRunning;tailscaleInstalled=[bool]$tailscale.installed;tailscaleRunning=[bool]$tailscale.running;sakuraEnabled=[bool]$sakura.enabled;sakuraReady=[bool]$sakuraReady;sakuraOrigin=$sakura.origin;sakuraBackupOrigins=@($sakura.additionalOrigins | Where-Object {$_ -and $_ -ne $sakura.origin});sakuraPort=$(if($sakura.port){$sakura.port}else{8767});busy=$active}
 }
 
 function Get-DiarySakuraConfig {

@@ -44,11 +44,16 @@ try{
  $loginResponse=$loginRequest.GetResponse();try{Assert ([int]$loginResponse.StatusCode -eq 200) 'Unicode password failed across DPAPI and stdin'}finally{$loginResponse.Dispose()}
  Assert ((Get-DiaryFileHash $entryFile) -eq $hash) 'Journal changed during Sakura setup'
  $savedPassword=(Get-DiarySakuraConfig $Fixture).password.hash
+ $backupConfig=Get-DiarySakuraConfig $Fixture
+ $backupConfig | Add-Member -NotePropertyName additionalOrigins -NotePropertyValue @('https://backup.example.invalid:34567') -Force
+ Write-DiaryJson (Join-Path $Fixture 'local-state/sakura-access.json') $backupConfig
  Must-Fail {Set-DiarySakuraAccess $Fixture 'http://invalid.example' $sakuraPort}
  Assert ((Get-DiaryHealth $second).sakuraPort -eq $sakuraPort) 'Invalid HTTPS address stopped the running service'
  Must-Fail {Update-DiarySettings $Fixture $sakuraPort 443}
  Set-DiarySakuraAccess $Fixture 'https://changed.example.invalid:23456' $sakuraPort
  Assert ((Get-DiarySakuraConfig $Fixture).password.hash -eq $savedPassword) 'Blank password replaced existing password'
+ Assert ((Get-DiarySakuraConfig $Fixture).additionalOrigins -contains 'https://backup.example.invalid:34567') 'Controller save discarded backup origin'
+ Assert ((Get-DiaryControllerStatus $Fixture).sakuraBackupOrigins -contains 'https://backup.example.invalid:34567') 'Controller status omitted backup address'
  Assert ((Get-DiaryHealth $second).sakuraOrigin -eq 'https://changed.example.invalid:23456') 'Sakura origin was not updated'
  $occupied=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0);$occupied.Start()
  try{Must-Fail {Set-DiarySakuraAccess $Fixture 'https://changed.example.invalid:23456' $occupied.LocalEndpoint.Port};Assert ((Get-DiaryHealth $second).sakuraPort -eq $sakuraPort) 'Occupied Sakura port stopped the current service'}finally{$occupied.Stop()}

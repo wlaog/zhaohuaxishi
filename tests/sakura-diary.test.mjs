@@ -30,6 +30,32 @@ test('Sakura config requires HTTPS, a separate valid port and a password hash',a
   await assert.rejects(makeSakuraConfig({origin,port:8767,password:'short'}));
   await assert.rejects(makeSakuraConfig({origin,port:8767,password:''}));
   assert.deepEqual((await makeSakuraConfig({origin,port:8768,password:''},record)).password,record.password);
+  for(const additionalOrigins of ['https://backup.example.invalid',["http://backup.example.invalid"],['https://backup.example.invalid/path'],Array(5).fill('https://backup.example.invalid')])assert.throws(()=>sakuraAccess({...record,additionalOrigins}));
+  const backup='https://backup.example.invalid:34567';
+  const migrated=await makeSakuraConfig({origin,port:8768,password:''},{...record,additionalOrigins:[backup]});
+  assert.deepEqual(migrated.additionalOrigins,[backup]);assert.deepEqual(migrated.password,record.password);
+});
+
+test('explicit backup origins share the same diary and password while enforcing each request origin',async t=>{
+  const base=path.resolve('qa-output/sakura-tests');await fs.mkdir(base,{recursive:true});
+  const root=await fs.mkdtemp(path.join(base,'backup-')),port=await freePort();
+  const backup='https://backup.example.invalid:34567',Host=new URL(backup).host;
+  const app=await createDiaryServer({root,sakura:{...record,port,additionalOrigins:[backup]}});t.after(()=>app.close());
+  assert.equal((await request(port,'/login',{headers:{Host}})).status,200);
+  assert.equal((await request(port,'/api/bootstrap',{headers:{Host}})).status,401);
+  assert.equal((await request(port,'/api/bootstrap',{headers:{Host:'unknown.example.invalid','X-Forwarded-Host':Host}})).status,403);
+  assert.equal((await login(port,password,{Host,Origin:origin})).status,403);
+  const response=await login(port,password,{Host,Origin:backup});assert.equal(response.status,200);
+  const Cookie=response.headers['set-cookie'][0].split(';')[0];
+  const boot=JSON.parse((await request(port,'/api/bootstrap',{headers:{Host,Cookie}})).text);
+  const id='n-abcdef1234567890abcdef12',entry={revision:0,title:'Backup fixture',date:'2026-10-30',blocks:[{id:'one',type:'text',html:'<p>Shared from backup</p>'}]};
+  const headers={Host,Cookie,Origin:backup,'Content-Type':'application/json','X-Diary-Token':boot.token};
+  assert.equal((await request(port,'/api/entries/'+id,{method:'PUT',headers:{...headers,Origin:origin},body:JSON.stringify(entry)})).status,403);
+  assert.equal((await request(port,'/api/entries/'+id,{method:'PUT',headers,body:JSON.stringify(entry)})).status,200);
+  assert.equal((await(await fetch(app.url+'/api/entries/'+id)).json()).title,entry.title);
+  const mainLogin=await login(port);assert.equal(mainLogin.status,200);
+  const mainCookie=mainLogin.headers['set-cookie'][0].split(';')[0];
+  assert.equal(JSON.parse((await request(port,'/api/entries/'+id,{headers:{Cookie:mainCookie}})).text).title,entry.title);
 });
 
 test('public listener protects all resources, isolates loopback trust, shares saves, and revokes sessions',async t=>{
