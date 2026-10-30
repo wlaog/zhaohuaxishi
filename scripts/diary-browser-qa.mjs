@@ -150,6 +150,19 @@ try {
   assert.equal(await gallery.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   await gallery.locator('#menu').click();await gallery.locator('[data-view="pinned"]').click();assert.equal(await gallery.locator('.sidebar').evaluate(e=>e.classList.contains('open')),false);
   check('dark theme, mobile layout, menu navigation and no horizontal overflow');
+  await gallery.setViewportSize({width:1440,height:1060});
+  await gallery.locator('[data-view="all"]').click();
+  gallery.once('dialog',dialog=>dialog.accept());await gallery.locator(`[data-open="${legacy}"]`).first().click();await gallery.locator('#trash-entry').click();await gallery.locator('#editor-dialog').waitFor({state:'hidden'});
+  await gallery.locator('[data-view="trash"]').click();
+  const trashCard=gallery.locator(`.memo-card:has([data-purge="${legacy}"])`);await trashCard.waitFor();
+  assert.match(await trashCard.textContent(),/剩 30 天后自动删除/);
+  gallery.once('dialog',dialog=>dialog.accept());await gallery.locator(`[data-purge="${legacy}"]`).click();
+  await gallery.locator('.memo-card').waitFor({state:'detached'});
+  assert.equal(await gallery.locator('.memo-card').count(),0);
+  const afterPurge=await (await context.request.get(fixtureApp.url+'/api/bootstrap')).json();
+  assert.equal(afterPurge.entries.some(e=>e.id===legacy),false);
+  assert.equal(await fs.access(path.join(fixture,'_purged.json')).then(()=>true,()=>false),true);
+  check('recycle bin shows the auto-delete countdown and permanent deletion keeps purged entries from returning');
   assert.deepEqual(unexpected,[]);check('no application script errors or failed requests in editing workflow');
   await context.close();
 

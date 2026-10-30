@@ -80,6 +80,92 @@ test('save validation protects date folders, image references and original refer
   await assert.rejects(store.save(id,{...input(1),date:'2026-10-18'}),{status:400});
   await assert.rejects(store.upload(id,Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"/>')),{status:400});
 });
+test('permanent deletion removes trashed entries with history and unreferenced media only', async t => {
+  const root=await fixture(t), store=await new DiaryStore(root).init();
+  const otherId='n-abcdefabcdefabcdefabcdef';
+  let e=await store.save(id,input());
+  const bytes=await sharp({create:{width:4,height:4,channels:3,background:'#3a7b5e'}}).png().toBuffer();
+  const image=await store.upload(id,bytes);
+  e=await store.save(id,{...e,deleted:true,blocks:[...e.blocks,{id:'image-one',type:'image',file:image.file,caption:''}]});
+  assert.equal(e.deleted,true);assert.ok(e.deletedAt,'trashing records a deletion timestamp');
+  let other=await store.save(otherId,input());
+  other=await store.save(otherId,{...other,blocks:[...other.blocks,{id:'image-two',type:'image',file:image.file,caption:'shared'}]});
+  // Same date folder, so the shared image must survive the first purge.
+  const first=await store.purge(id);
+  assert.equal(first.purged,id);
+  assert.equal(store.entries.has(id),false);
+  await fs.access(path.join(root,'source/26/10/17',image.file));
+  // Purging a diary that is not in the trash is refused.
+  await assert.rejects(store.purge(otherId),{status:400});
+  await assert.rejects(store.purge(legacyId),{status:400});
+  other=await store.save(otherId,{...other,deleted:true});
+  const second=await store.purge(otherId);
+  assert.equal(second.purged,otherId);
+  await assert.rejects(fs.access(path.join(root,'source/26/10/17',image.file)));
+  await assert.rejects(fs.access(path.join(root,'source/26/10/17',`entry-${id}.json`)));
+  await assert.rejects(fs.access(path.join(root,'source/26/10/17/_history',id)));
+  // Restarting cannot resurrect purged entries, and saving them again is refused.
+  const reopened=await new DiaryStore(root).init();
+  assert.equal(reopened.entries.has(id),false);
+  assert.equal(reopened.entries.has(otherId),false);
+  assert.equal(reopened.get(legacyId).title,'Fixture original');
+  await assert.rejects(reopened.save(id,input()),{status:404});
+});
+test('restoring clears the deletion clock and expired trash is purged after 30 days', async t => {
+  const root=await fixture(t), store=await new DiaryStore(root).init();
+  let e=await store.save(id,input());
+  e=await store.save(id,{...e,deleted:true});
+  assert.ok(e.deletedAt);
+  e=await store.save(id,{...e,deleted:false});
+  assert.equal(e.deleted,false);assert.equal(e.deletedAt,null);
+  e=await store.save(id,{...e,deleted:true});
+  // Entries trashed before timestamps existed count from their last update.
+  const file=path.join(root,'source/26/10/17',`entry-${id}.json`);
+  const disk=JSON.parse(await fs.readFile(file,'utf8'));
+  delete disk.deletedAt;disk.updated=new Date(Date.now()-31*86_400_000).toISOString();
+  await fs.writeFile(file,JSON.stringify(disk));
+  const freshId='n-fedcbafedcbafedcbafedcba';
+  const fresh=await store.save(freshId,{...input(),date:'2026-10-17'});
+  await store.save(freshId,{...fresh,deleted:true});
+  const reopened=await new DiaryStore(root).init();
+  assert.equal(reopened.get(id).deleted,true);
+  assert.ok(Date.parse(reopened.get(id).deletedAt)<=Date.now()-30*86_400_000,'missing timestamps are backfilled from the last update');
+  assert.equal(await reopened.purgeExpired(),1);
+  assert.equal(reopened.entries.has(id),false);
+  assert.equal(reopened.get(freshId).deleted,true,'recently trashed entries survive the sweep');
+  assert.equal(await reopened.purgeExpired(),0);
+});
+test('HTTP permanent delete requires the write token and only removes trashed entries', async t => {
+  const root=await fixture(t), app=await createDiaryServer({root});t.after(()=>app.close());
+  const boot=await (await fetch(app.url+'/api/bootstrap')).json();
+  const token={method:'DELETE',headers:{'X-Diary-Token':boot.token}};
+  const put=body=>fetch(app.url+'/api/entries/'+id,{method:'PUT',headers:{'X-Diary-Token':boot.token},body:JSON.stringify(body)});
+  assert.equal((await fetch(app.url+'/api/entries/'+id,{method:'DELETE'})).status,403);
+  let e=await (await put(input())).json();
+  assert.equal((await fetch(app.url+'/api/entries/'+id,token)).status,400);
+  e=await (await put({...e,deleted:true})).json();
+  const purge=await fetch(app.url+'/api/entries/'+id,token);
+  assert.equal(purge.status,200);assert.equal((await purge.json()).purged,id);
+  const after=await (await fetch(app.url+'/api/bootstrap')).json();
+  assert.equal(after.entries.find(x=>x.id===id),undefined);
+  assert.equal((await fetch(app.url+'/api/entries/'+id,token)).status,404);
+  const emptied=await fetch(app.url+'/api/trash',token);
+  assert.equal(emptied.status,200);assert.equal((await emptied.json()).purged,0);
+  assert.equal((await fetch(app.url+'/api/trash',{method:'DELETE'})).status,403);
+});
+test('the server purges expired trash when it starts', async t => {
+  const root=await fixture(t);
+  const store=await new DiaryStore(root).init();
+  const e=await store.save(id,input());
+  await store.save(id,{...e,deleted:true});
+  const file=path.join(root,'source/26/10/17',`entry-${id}.json`);
+  const disk=JSON.parse(await fs.readFile(file,'utf8'));
+  disk.deletedAt=new Date(Date.now()-31*86_400_000).toISOString();
+  await fs.writeFile(file,JSON.stringify(disk));
+  const app=await createDiaryServer({root});t.after(()=>app.close());
+  const boot=await (await fetch(app.url+'/api/bootstrap')).json();
+  assert.equal(boot.entries.find(x=>x.id===id),undefined,'expired trash is purged on startup');
+});
 test('HTTP requires local host, same origin and write token; archived scripts never execute', async t => {
   const root=await fixture(t), app=await createDiaryServer({root});t.after(()=>app.close());
   const boot=await (await fetch(app.url+'/api/bootstrap')).json();assert.equal(boot.entries.length,1);

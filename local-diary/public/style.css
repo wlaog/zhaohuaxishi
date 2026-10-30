@@ -690,6 +690,12 @@ main {
   padding:2px 6px;
   border-radius:3px
 }
+.memo-footer .purge-action {
+  color:var(--danger)
+}
+#purge-entry {
+  color:var(--danger)
+}
 .pinned-mark {
   color:var(--accent)
 }

@@ -5,6 +5,7 @@ const paths = {
   plus:'M12 5v14M5 12h14', home:'m3 10 9-7 9 7M5 9v12h14V9M9 21v-8h6v8',
   bookmark:'M6 3h12v18l-6-4-6 4z', image:'M3 3h18v18H3zM3 17l6-6 4 4 3-3 5 5M8 7h.01',
   clock:'M12 8v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0', trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+  trashX:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10l4 4M14 10l-4 4',
   filter:'M4 6h16M7 12h10M10 18h4', book:'M12 5v16M12 5C8 2 4 3 2 4v15c4-2 7-1 10 2 3-3 6-4 10-2V4c-2-1-6-2-10 1',
   folder:'M3 5h6l2 3h10v12H3z', external:'M14 3h7v7M21 3 11 13M10 3H3v18h18v-7',
   sun:'M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1 1M18 18l1 1M5 19l1-1M18 6l1-1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
@@ -120,9 +121,10 @@ function renderFeed() {
   $('#quick-write').textContent=state.date?`${day}，有什么想记下来的？`:'今天，有什么想记下来的？';
   $('#view-label').textContent=labels[state.view];
   $('#heading').textContent=state.query?'找到记忆中的片刻。':state.date?`${state.date} 的记录`:state.month?`${state.month.replace('-',' 年 ')} 月`:state.tag?`# ${state.tag}`:({all:'生活，值得被记住。',pinned:'把喜欢的日子，留下来。',images:'有些瞬间，一眼就记得。',recent:'接着上次的思绪。',trash:'暂时收起的片刻。'}[state.view]);
-  $('#subtitle').textContent=state.view==='trash'?'移出的日记可以恢复，原始归档仍保留。':state.query?'从标题、正文和标签中，找回你的日常。':'写下此刻，也翻翻从前。';
+  $('#subtitle').textContent=state.view==='trash'?'移出的日记 30 天内可恢复，到期后自动永久删除。':state.query?'从标题、正文和标签中，找回你的日常。':'写下此刻，也翻翻从前。';
   $('#feed-label').textContent=state.date||state.month||state.tag?'筛选结果':state.view==='all'?'所有片刻':labels[state.view];
   $('#result-count').textContent=`${rows.length} 篇${state.ascending?' · 由早到晚':''}`;
+  $('#empty-trash').hidden=state.view!=='trash'||!state.entries.some(e=>e.deleted);
   $('#quick-compose').hidden=state.view==='trash';
   document.querySelectorAll('[data-view]').forEach(el=>el.classList.toggle('active',el.dataset.view===state.view));
   if(!rows.length) {
@@ -132,7 +134,10 @@ function renderFeed() {
     let media='';
     if(e.thumbnail) media=`<img class="memo-thumbnail" src="${esc(resource(e,e.thumbnail))}" alt="${esc(title)} · 原图预览" loading="lazy" data-lightbox="${esc(resource(e,e.thumbnail))}">`;
     else if(e.media?.length) media=`<div class="card-image-grid">${e.media.slice(0,3).map(file=>`<img class="memo-thumbnail" src="${esc(resource(e,file))}" alt="日记原图" loading="lazy" data-lightbox="${esc(resource(e,file))}">`).join('')}</div>`;
-    return `<article class="memo-card" data-id="${e.id}"><div class="memo-meta"><span class="avatar">拾</span><span>朝花夕拾</span><span>·</span><time>${esc(date)}</time><span class="origin">${e.legacy?'OneNote':e.importSources?.length?'导入资料':'本地日记'}</span><button data-pin="${e.id}" title="${e.pinned?'取消收藏':'收藏'}" aria-label="${e.pinned?'取消收藏':'收藏'}" class="${e.pinned?'pinned-mark':''}">${icon('bookmark')}</button></div><button class="memo-title" data-open="${e.id}">${esc(title)}</button>${excerpt?`<p class="memo-excerpt">${esc(excerpt)}</p>`:''}${media}<div class="memo-footer">${e.tags.slice(0,3).map(t=>`<button class="pill" data-tag="${esc(t)}"># ${esc(t)}</button>`).join('')}${e.imageCount?`<span>${icon('image')} ${e.imageCount}</span>`:''}${e.blockTypes?.includes('html')?`<span>${icon('code')} HTML</span>`:''}${e.legacy||e.importSources?.length?`<span>${icon('shield')} 原始资料保留</span>`:''}<button class="read-action" data-open="${e.id}">${e.deleted?'查看与恢复':'打开日记'} ${icon('arrow')}</button></div></article>`;
+    const daysLeft=e.deletedAt?Math.max(0,30-Math.floor((Date.now()-Date.parse(e.deletedAt))/86400000)):30;
+    const trashMeta=e.deleted?`<span>${icon('clock')} ${daysLeft>0?`剩 ${daysLeft} 天后自动删除`:'即将自动永久删除'}</span>`:'';
+    const purgeAction=e.deleted?`<button class="purge-action" data-purge="${e.id}" title="永久删除这篇日记，无法恢复">${icon('trashX')}永久删除</button>`:'';
+    return `<article class="memo-card" data-id="${e.id}"><div class="memo-meta"><span class="avatar">拾</span><span>朝花夕拾</span><span>·</span><time>${esc(date)}</time><span class="origin">${e.legacy?'OneNote':e.importSources?.length?'导入资料':'本地日记'}</span><button data-pin="${e.id}" title="${e.pinned?'取消收藏':'收藏'}" aria-label="${e.pinned?'取消收藏':'收藏'}" class="${e.pinned?'pinned-mark':''}">${icon('bookmark')}</button></div><button class="memo-title" data-open="${e.id}">${esc(title)}</button>${excerpt?`<p class="memo-excerpt">${esc(excerpt)}</p>`:''}${media}<div class="memo-footer">${e.tags.slice(0,3).map(t=>`<button class="pill" data-tag="${esc(t)}"># ${esc(t)}</button>`).join('')}${e.imageCount?`<span>${icon('image')} ${e.imageCount}</span>`:''}${e.blockTypes?.includes('html')?`<span>${icon('code')} HTML</span>`:''}${e.legacy||e.importSources?.length?`<span>${icon('shield')} 原始资料保留</span>`:''}${trashMeta}<button class="read-action" data-open="${e.id}">${e.deleted?'查看与恢复':'打开日记'} ${icon('arrow')}</button>${purgeAction}</div></article>`;
   }).join('');
   $('#load-more').hidden=rows.length<=state.limit;
 }
@@ -293,6 +298,7 @@ function fillEditor() {
   $('#editor-label').textContent=e.deleted?'回收站中的日记':'日记';
   $('#pin-entry').classList.toggle('pinned',e.pinned);
   $('#trash-entry').innerHTML=icon(e.deleted?'undo':'trash')+(e.deleted?'恢复日记':'移入回收站');
+  $('#purge-entry').hidden=!e.deleted;
   renderBlocks();
 }
 async function openEntry(id) {
@@ -430,6 +436,16 @@ document.addEventListener('click',async event=>{
   if(button.dataset.create)await writeDaily(button.dataset.create);
   if(button.dataset.open)await openEntry(button.dataset.open);
   if(button.dataset.pin)await pin(button.dataset.pin);
+  if(button.dataset.purge){
+    if(!confirm('永久删除这篇日记？删除后无法恢复，历史版本和不再被引用的图片将一并清除。'))return;
+    const id=button.dataset.purge;
+    try{
+      await api(`/api/entries/${id}`,{method:'DELETE'});
+      state.entries=state.entries.filter(e=>e.id!==id);
+      renderAll();toast('这篇日记已永久删除');
+    }catch(error){toast(error.message);}
+    return;
+  }
   if(button.dataset.month){clearFilters();state.month=button.dataset.month;state.calendar=new Date(state.month+'-01T12:00:00');renderAll();}
   if(button.dataset.tag){clearFilters();state.tag=button.dataset.tag;renderAll();}
   if(button.dataset.date){const date=button.dataset.date;clearFilters();state.date=date;renderAll();closeOverview();}
@@ -487,8 +503,30 @@ $('#editor-dialog').addEventListener('cancel',event=>{event.preventDefault();clo
 $('#entry-title').oninput=changed;$('#entry-tags').oninput=changed;$('#entry-date').onchange=()=>{changed();renderDaySummaries();};
 $('#pin-entry').onclick=()=>{state.current.pinned=!state.current.pinned;$('#pin-entry').classList.toggle('pinned',state.current.pinned);changed();};
 $('#trash-entry').onclick=async()=>{
-  if(!state.current.deleted&&!confirm('将这篇日记移入回收站？之后可以恢复，原始资料仍保留。'))return;
+  if(!state.current.deleted&&!confirm('将这篇日记移入回收站？30 天内可恢复，到期后自动永久删除。'))return;
   state.current.deleted=!state.current.deleted;changed();await closeEditor();
+};
+$('#purge-entry').onclick=async()=>{
+  const current=state.current;
+  if(!current?.deleted||state.saving)return;
+  if(!confirm('永久删除这篇日记？删除后无法恢复，历史版本和不再被引用的图片将一并清除。'))return;
+  try{
+    await api(`/api/entries/${current.id}`,{method:'DELETE'});
+    state.entries=state.entries.filter(e=>e.id!==current.id);
+    $('#editor-dialog').close();state.current=null;state.activeText=null;state.dirty=state.saved=0;state.conflicts=false;clearTimeout(state.saveTimer);
+    const url=new URL(location.href);url.hash='';history.replaceState(null,'',url);
+    renderAll();toast('这篇日记已永久删除');
+  }catch(error){toast(error.message);}
+};
+$('#empty-trash').onclick=async()=>{
+  const count=state.entries.filter(e=>e.deleted).length;
+  if(!count)return;
+  if(!confirm(`永久删除回收站中的全部 ${count} 篇日记？删除后无法恢复，历史版本和不再被引用的图片将一并清除。`))return;
+  try{
+    const result=await api('/api/trash',{method:'DELETE'});
+    state.entries=state.entries.filter(e=>!e.deleted);
+    renderAll();toast(`已永久删除 ${result.purged} 篇日记`);
+  }catch(error){toast(error.message);}
 };
 $('#download-entry').onclick=downloadDraft;$('#entry-history').onclick=showHistory;
 $('#connection-status').onclick=syncRemote;

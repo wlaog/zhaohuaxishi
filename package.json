@@ -1,7 +1,7 @@
 {
   "name": "onenote-local-notebook-site",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "scripts": {
     "check:privacy": "node scripts/check-public-content.mjs",

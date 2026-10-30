@@ -58,6 +58,11 @@ export class DiaryStore {
         this.imported.get(source.entryId).push(source);
       }
     } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    this.purged = new Set();
+    try {
+      const tombstones = JSON.parse(await fs.readFile(path.join(this.root, '_purged.json'), 'utf8'));
+      for (const tombstone of Array.isArray(tombstones) ? tombstones : []) if (validId(tombstone)) this.purged.add(tombstone);
+    } catch (e) { if (e.code !== 'ENOENT') throw e; }
     let manifest = { pages: [], sections: [] }, catalog = { pages: [] };
     try { manifest = JSON.parse(await fs.readFile(path.join(this.root, 'manifest.json'), 'utf8')); }
     catch (e) { if (e.code !== 'ENOENT') throw e; }
@@ -65,6 +70,7 @@ export class DiaryStore {
     catch (e) { if (e.code !== 'ENOENT') throw e; }
     const searches = new Map(catalog.pages.map(p => [p.key, p.search]));
     for (const page of manifest.pages) {
+      if (this.purged.has(page.key)) continue;
       if (!validId(page.key)) fail(500, '归档页面标识无效');
       within(this.root, page.url);
       const folder = path.posix.dirname(page.url);
@@ -87,7 +93,10 @@ export class DiaryStore {
         if (item.isDirectory() && !item.name.endsWith('.files') && item.name !== '_history') await walk(file);
         else if (item.isFile() && /^entry-(?:n-)?[a-f0-9]+\.json$/.test(item.name)) {
           const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+          if (this.purged.has(saved.id)) continue;
           if (!validId(saved.id) || this.files.has(saved.id)) fail(500, '本地日记标识重复或无效');
+          // Entries trashed before deletion timestamps existed count from their last update.
+          if (saved.deleted && !saved.deletedAt) saved.deletedAt = saved.updated ?? null;
           saved.folder = path.relative(this.root, dir).replaceAll('\\', '/');
           this.entries.set(saved.id, this.decorate(saved)); this.files.set(saved.id, file);
         }
@@ -134,6 +143,7 @@ export class DiaryStore {
   save(id, input) { return this.serial(() => this._save(id, input)); }
   async _save(id, input) {
     if (!validId(id)) fail(400, '无效日记标识');
+    if (this.purged.has(id)) fail(404, '这篇日记已被永久删除');
     const current = this.entries.get(id);
     if (!current && !id.startsWith('n-')) fail(404, '日记不存在');
     if (input.revision !== (current?.revision ?? 0)) fail(409, '另一窗口已保存新版本。请先下载当前草稿，再重新加载，避免覆盖。');
@@ -174,9 +184,12 @@ export class DiaryStore {
     });
     for (const b of blocks) if (b.type === 'image') await fs.access(within(this.root, `${folder}/${b.file}`)).catch(() => fail(400, '图片文件不存在'));
     const now = new Date().toISOString();
+    const deleted = !!input.deleted;
+    // The deletion clock starts when an entry moves to the trash and stops when it comes back.
+    const deletedAt = deleted ? (current?.deleted ? current.deletedAt ?? now : now) : null;
     const entry = { schemaVersion: 1, id, title: input.title.trim() || '无标题日记', date, folder, group: !!current?.group, legacy: !!current?.legacy,
       created: current?.created ?? now, updated: now, revision: (current?.revision ?? 0) + 1,
-      pinned: !!input.pinned, deleted: !!input.deleted, tags: [...new Set((Array.isArray(input.tags) ? input.tags : []).map(t => String(t).replace(/^#/, '').trim().slice(0, 40)).filter(Boolean))].slice(0, 20), blocks };
+      pinned: !!input.pinned, deleted, deletedAt, tags: [...new Set((Array.isArray(input.tags) ? input.tags : []).map(t => String(t).replace(/^#/, '').trim().slice(0, 40)).filter(Boolean))].slice(0, 20), blocks };
     const file = within(this.root, `${folder}/entry-${id}.json`);
     if (current) await atomicJson(within(this.root, `${folder}/_history/${id}/${String(current.revision).padStart(8, '0')}.json`), current);
     await atomicJson(file, entry);
@@ -209,4 +222,64 @@ export class DiaryStore {
     const old = JSON.parse(await fs.readFile(within(this.root, `${entry.folder}/_history/${id}/${String(revision).padStart(8, '0')}.json`), 'utf8').catch(() => fail(404, '历史版本不存在')));
     return this._save(id, { ...old, revision: expectedRevision });
   }); }
+  purge(id) { return this.serial(() => this._purge(id)); }
+  purgeTrash() { return this.serial(async () => {
+    let purged = 0;
+    for (const entry of [...this.entries.values()]) if (entry.deleted) { await this._purge(entry.id); purged++; }
+    return purged;
+  }); }
+  purgeExpired(maxAgeDays = 30) { return this.serial(async () => {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000;
+    const expired = [...this.entries.values()].filter(e => e.deleted && e.deletedAt && Date.parse(e.deletedAt) <= cutoff).map(e => e.id);
+    for (const id of expired) await this._purge(id);
+    return expired.length;
+  }); }
+  async _purge(id) {
+    if (!validId(id)) fail(400, '无效日记标识');
+    const entry = this.entries.get(id);
+    if (!entry) fail(404, '日记不存在');
+    if (!entry.deleted) fail(400, '只有回收站中的日记才能永久删除');
+    // Collect the entry's own uploaded media, including files named inside HTML blocks.
+    const media = new Set();
+    for (const block of entry.blocks) {
+      if (block.type === 'image' && block.file) media.add(block.file);
+      if (typeof block.html === 'string') for (const match of block.html.matchAll(/media-[a-f0-9]{64}\.(?:png|jpg|gif|webp|avif)/g)) media.add(match[0]);
+    }
+    const folder = within(this.root, entry.folder);
+    await fs.rm(path.join(folder, `_history/${id}`), { recursive: true, force: true });
+    await fs.rm(this.files.get(id) ?? path.join(folder, `entry-${id}.json`), { force: true });
+    this.entries.delete(id); this.files.delete(id); this.legacy.delete(id);
+    // A tombstone keeps archived pages from returning with the next manifest load.
+    this.purged.add(id);
+    await atomicJson(path.join(this.root, '_purged.json'), [...this.purged]);
+    let mediaRemoved = 0;
+    for (const file of media) {
+      if (!/^media-[a-f0-9]{64}\.(?:png|jpg|gif|webp|avif)$/.test(file)) continue;
+      if (await this.mediaReferenced(entry.folder, file)) continue;
+      await fs.rm(path.join(folder, file), { force: true });
+      mediaRemoved++;
+    }
+    return { purged: id, mediaRemoved };
+  }
+  async mediaReferenced(folder, file) {
+    for (const entry of this.entries.values())
+      if (entry.folder === folder && JSON.stringify(entry.blocks).includes(file)) return true;
+    const historyRoot = within(this.root, `${folder}/_history`);
+    try {
+      for (const dir of await fs.readdir(historyRoot, { withFileTypes: true })) {
+        if (!dir.isDirectory()) continue;
+        for (const name of await fs.readdir(path.join(historyRoot, dir.name))) {
+          if (!name.endsWith('.json')) continue;
+          if ((await fs.readFile(path.join(historyRoot, dir.name, name), 'utf8')).includes(file)) return true;
+        }
+      }
+    } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    try {
+      for (const item of await fs.readdir(within(this.root, folder), { withFileTypes: true })) {
+        if (!item.isFile() || !/\.html?$/i.test(item.name)) continue;
+        if ((await fs.readFile(path.join(within(this.root, folder), item.name), 'utf8')).includes(file)) return true;
+      }
+    } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    return false;
+  }
 }

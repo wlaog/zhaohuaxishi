@@ -32,6 +32,14 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
   const instance = crypto.randomBytes(12).toString('hex');
   let sequence = 0;
   const changeVersion = () => `${instance}:${sequence}`;
+  // Trash older than 30 days is purged on start and once an hour afterwards.
+  const sweepTrash = async () => {
+    const purged = await store.purgeExpired();
+    if (purged) { sequence++; console.log(`回收站已自动永久删除 ${purged} 篇超过 30 天的日记。`); }
+  };
+  await sweepTrash().catch(error => console.error('回收站自动清理失败：', error.message));
+  const trashTimer = setInterval(() => { sweepTrash().catch(() => {}); }, 3_600_000);
+  trashTimer.unref?.();
   const handler = isSakura => async (req, res) => {
     try {
       const connection = isSakura ? auth.connection(req) : requestAccess(req, server.address().port, access);
@@ -73,6 +81,7 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         if (req.method === 'GET' && url.pathname === '/api/health') return await json(req, res, 200, { application: 'life-local-diary', root: store.root, remoteOrigin: access?.origin ?? null, sakuraOrigin:sakuraConfig?.origin ?? null, sakuraPort:sakuraServer?.address()?.port ?? null });
         if (req.method === 'GET' && url.pathname === '/api/changes') return await json(req, res, 200, { changeVersion: changeVersion() });
         if (req.method === 'GET' && url.pathname === '/api/bootstrap') return await json(req, res, 200, { token, entries: store.list(), days: days.list(), root: store.root, version: 1, changeVersion: changeVersion(), remoteSession:isSakura });
+        if (url.pathname === '/api/trash' && req.method === 'DELETE') { const purged = await store.purgeTrash(); sequence++; return await json(req, res, 200, { purged }); }
         const dayMatch=url.pathname.match(/^\/api\/days\/([^/]+)$/);
         if(dayMatch){
           if(req.method==='GET')return await json(req, res,200,await days.get(dayMatch[1]));
@@ -87,6 +96,7 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
         if (req.method === 'PUT' && !action) { const saved = await store.save(id, JSON.parse(await body(req))); sequence++; return await json(req, res, 200, saved); }
         if (req.method === 'POST' && action === 'images') return await json(req, res, 200, await store.upload(id, await body(req, 25 * 1024 * 1024)));
         if (req.method === 'POST' && action === 'restore') { const data = JSON.parse(await body(req)); const saved = await store.restore(id, data.restoreRevision, data.revision); sequence++; return await json(req, res, 200, saved); }
+        if (req.method === 'DELETE' && !action) { const result = await store.purge(id); sequence++; return await json(req, res, 200, result); }
         throw new DiaryError(405, '请求方法不支持');
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw new DiaryError(405, '请求方法不支持');
@@ -130,7 +140,7 @@ export async function createDiaryServer({ root = path.resolve(appRoot, '../expor
     const onListening = () => { listener.off('error', onError); resolve(); };
     listener.once('error', onError); listener.once('listening', onListening); listener.listen(number, '127.0.0.1');
   });
-  const close = () => Promise.all(listeners.map(listener => new Promise(resolve => listener.close(resolve))));
+  const close = () => { clearInterval(trashTimer); return Promise.all(listeners.map(listener => new Promise(resolve => listener.close(resolve)))); };
   try {
     await listen(server, port);
     if (sakuraServer) await listen(sakuraServer, sakuraConfig.port);
