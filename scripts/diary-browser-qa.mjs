@@ -94,6 +94,7 @@ try {
   const uploaded=await fs.readFile(path.join(fixture,saved.folder,saved.blocks.find(b=>b.type==='image').file));assert.deepEqual(uploaded,sample);
   await page.reload();await page.locator(`[data-open="${created.id}"]`).first().click();
   await page.locator('.html-preview').waitFor();
+  assert.equal(await page.locator('#purge-entry').isHidden(),true,'normal entries never offer permanent deletion');
   assert.match(await page.frameLocator('.html-preview').locator('h2').innerText(),/今日的小确幸/);
   assert.equal(await page.locator('.block-image').evaluate(i=>i.complete&&i.naturalWidth===900),true);
   await page.screenshot({path:path.join(output,'block-editor.png')});
@@ -156,6 +157,9 @@ try {
   await gallery.locator('[data-view="trash"]').click();
   const trashCard=gallery.locator(`.memo-card:has([data-purge="${legacy}"])`);await trashCard.waitFor();
   assert.match(await trashCard.textContent(),/剩 30 天后自动删除/);
+  await trashCard.locator('[data-open].read-action').click();await gallery.locator('#purge-entry').waitFor({state:'visible'});
+  assert.equal(await gallery.locator('#purge-entry').isVisible(),true,'trashed entries offer permanent deletion in the editor');
+  await gallery.locator('#close-editor').click();await gallery.locator('#editor-dialog').waitFor({state:'hidden'});
   gallery.once('dialog',dialog=>dialog.accept());await gallery.locator(`[data-purge="${legacy}"]`).click();
   await gallery.locator('.memo-card').waitFor({state:'detached'});
   assert.equal(await gallery.locator('.memo-card').count(),0);

@@ -1313,6 +1313,9 @@ dialog::backdrop {
   padding:7px;
   color:var(--muted)
 }
+.editor-footer>div>button[hidden] {
+  display:none
+}
 .editor-footer .icon {
   width:14px;
   height:14px
